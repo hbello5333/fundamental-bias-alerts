@@ -1,0 +1,22 @@
+services:
+  - type: worker
+    name: fundamental-bias-alerts
+    runtime: python
+    plan: starter
+    buildCommand: pip install .
+    startCommand: python -u -m fundamental_bias_alerts.cli loop --config configs/locked.json --interval-minutes 60 --align-to-clock --telegram-token-env TELEGRAM_BOT_TOKEN --telegram-chat-id-env TELEGRAM_CHAT_ID
+    envVars:
+      - key: FRED_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: FBA_STATE_PATH
+        value: storage/.state/alert_state.json
+      - key: FBA_SNAPSHOT_PATH
+        value: storage/data/bias_snapshots.jsonl
+    disk:
+      name: worker-storage
+      mountPath: /opt/render/project/src/storage
+      sizeGB: 1

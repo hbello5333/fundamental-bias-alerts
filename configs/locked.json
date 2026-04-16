@@ -1,0 +1,636 @@
+{
+  "metadata": {
+    "name": "fundamentals-only-hourly-bias",
+    "version": "0.4.0",
+    "description": "Research-oriented hourly macro bias engine for top 7 instruments with manually locked FRED series IDs."
+  },
+  "alerting": {
+    "state_path": ".state/alert_state.json",
+    "emit_on_first_run": true,
+    "min_score_change": 0.35
+  },
+  "research": {
+    "snapshot_path": "data/bias_snapshots.jsonl"
+  },
+  "day_trading": {
+    "min_confidence": 0.7,
+    "max_stale_drivers": 1,
+    "sessions": [
+      {
+        "key": "asia",
+        "label": "Asia",
+        "timezone": "Asia/Tokyo",
+        "start_time": "09:00",
+        "end_time": "12:00"
+      },
+      {
+        "key": "london",
+        "label": "London",
+        "timezone": "Europe/London",
+        "start_time": "07:00",
+        "end_time": "11:00"
+      },
+      {
+        "key": "new_york",
+        "label": "New York",
+        "timezone": "America/New_York",
+        "start_time": "08:00",
+        "end_time": "11:30"
+      }
+    ],
+    "instrument_sessions": {
+      "XAUUSD": ["london", "new_york"],
+      "EURUSD": ["london", "new_york"],
+      "GBPUSD": ["london", "new_york"],
+      "USDJPY": ["asia", "london", "new_york"],
+      "USDCAD": ["new_york"],
+      "BTCUSD": ["london", "new_york"],
+      "AUDUSD": ["asia", "london", "new_york"]
+    },
+    "event_policies": [
+      {
+        "currency": "USD",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["new_york"]
+      },
+      {
+        "currency": "USD",
+        "impact": "medium",
+        "block_before_minutes": 5,
+        "block_after_minutes": 10,
+        "preferred_sessions": ["new_york"]
+      },
+      {
+        "currency": "EUR",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["london"]
+      },
+      {
+        "currency": "GBP",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["london"]
+      },
+      {
+        "currency": "JPY",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["asia"]
+      },
+      {
+        "currency": "CAD",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["new_york"]
+      },
+      {
+        "currency": "AUD",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["asia"]
+      }
+    ]
+  },
+  "entities": [
+    {
+      "key": "USD",
+      "label": "US Dollar",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "Fed policy rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "DFF",
+            "resolved_title": "Federal Funds Effective Rate"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "US CPI momentum",
+          "weight": 0.1,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.003,
+          "stale_after_hours": 1440,
+          "series": {
+            "series_id": "CPIAUCSL",
+            "resolved_title": "Consumer Price Index for All Urban Consumers: All Items in U.S. City Average"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "US industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 1440,
+          "series": {
+            "series_id": "INDPRO",
+            "resolved_title": "Industrial Production: Total Index"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "US unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 5.0,
+          "scale": 2.0,
+          "stale_after_hours": 1440,
+          "series": {
+            "series_id": "UNRATE",
+            "resolved_title": "Unemployment Rate"
+          }
+        }
+      ]
+    },
+    {
+      "key": "EUR",
+      "label": "Euro",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "ECB main refinancing rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "ECBMRRFR",
+            "resolved_title": "ECB Main Refinancing Operations Rate: Fixed Rate Tenders for Euro Area"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "Euro area HICP momentum",
+          "weight": 0.1,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.0025,
+          "stale_after_hours": 2160,
+          "series": {
+            "series_id": "CP0000EZ19M086NEST",
+            "resolved_title": "Harmonized Index of Consumer Prices: All-Items HICP for Euro Area (19 Countries)"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "Euro area industrial production growth",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 0.0,
+          "scale": 1.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "EA19PRINTO01GPSAM",
+            "resolved_title": "Production: Industry: Total Industry Excluding Construction for Euro Area (19 Countries)"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "Euro area unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 7.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "LRHUTTTTEZM156S",
+            "resolved_title": "Harmonised Unemployment - Monthly Rates: Total: All Persons for the Euro Area (19 Countries)"
+          }
+        }
+      ]
+    },
+    {
+      "key": "GBP",
+      "label": "British Pound",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "UK overnight interbank rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "IRSTCI01GBM156N",
+            "resolved_title": "Interest Rates: Immediate Rates (< 24 Hours): Call Money/Interbank Rate: Total for United Kingdom"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "UK CPI inflation rate",
+          "weight": 0.1,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 10800,
+          "series": {
+            "series_id": "CPALTT01GBM659N",
+            "resolved_title": "Consumer Price Indices (CPIs, HICPs), COICOP 1999: Consumer Price Index: Total for United Kingdom"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "UK industrial production growth",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 0.0,
+          "scale": 1.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "GBRPRINTO01GPSAM",
+            "resolved_title": "Production: Industry: Total Industry Excluding Construction for United Kingdom"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "UK unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 5.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "LRHUTTTTGBM156S",
+            "resolved_title": "Infra-Annual Labor Statistics: Monthly Unemployment Rate Total: 15 Years or over for United Kingdom"
+          }
+        }
+      ]
+    },
+    {
+      "key": "JPY",
+      "label": "Japanese Yen",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "Japan overnight interbank rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 0.5,
+          "scale": 1.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "IRSTCI01JPM156N",
+            "resolved_title": "Interest Rates: Immediate Rates (< 24 Hours): Call Money/Interbank Rate: Total for Japan"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "Japan CPI inflation rate",
+          "weight": 0.1,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 19200,
+          "series": {
+            "series_id": "FPCPITOTLZGJPN",
+            "resolved_title": "Inflation, consumer prices for Japan"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "Japan industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 10800,
+          "series": {
+            "series_id": "JPNPROINDMISMEI",
+            "resolved_title": "Production, Sales, Work Started and Orders: Production Volume: Economic Activity: Industry (Except Construction) for Japan"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "Japan unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 3.0,
+          "scale": 1.5,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "LRUN64TTJPM156S",
+            "resolved_title": "Infra-Annual Labor Statistics: Unemployment Rate Total: From 15 to 64 Years for Japan"
+          }
+        }
+      ]
+    },
+    {
+      "key": "CAD",
+      "label": "Canadian Dollar",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "Canada overnight interbank rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "IRSTCI01CAM156N",
+            "resolved_title": "Interest Rates: Immediate Rates (< 24 Hours): Call Money/Interbank Rate: Total for Canada"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "Canada CPI inflation rate",
+          "weight": 0.1,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 10800,
+          "series": {
+            "series_id": "CPALTT01CAM659N",
+            "resolved_title": "Consumer Price Indices (CPIs, HICPs), COICOP 1999: Consumer Price Index: Total for Canada"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "Canada industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 10800,
+          "series": {
+            "series_id": "CANPROINDMISMEI",
+            "resolved_title": "Production, Sales, Work Started and Orders: Production Volume: Economic Activity: Industry (Except Construction) for Canada"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "Canada unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 6.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "LRUN64TTCAM156S",
+            "resolved_title": "Infra-Annual Labor Statistics: Unemployment Rate Total: From 15 to 64 Years for Canada"
+          }
+        }
+      ]
+    },
+    {
+      "key": "AUD",
+      "label": "Australian Dollar",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "Australia overnight interbank rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "IRSTCI01AUM156N",
+            "resolved_title": "Interest Rates: Immediate Rates (< 24 Hours): Call Money/Interbank Rate: Total for Australia"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "Australia CPI inflation rate",
+          "weight": 0.1,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.5,
+          "scale": 2.0,
+          "stale_after_hours": 10800,
+          "series": {
+            "series_id": "CPALTT01AUQ659N",
+            "resolved_title": "Consumer Price Indices (CPIs, HICPs), COICOP 1999: Consumer Price Index: Total for Australia"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "Australia industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 10800,
+          "series": {
+            "series_id": "AUSPROINDQISMEI",
+            "resolved_title": "Production, Sales, Work Started and Orders: Production Volume: Economic Activity: Industry (Except Construction) for Australia"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "Australia unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 5.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "LRUN64TTAUM156S",
+            "resolved_title": "Infra-Annual Labor Statistics: Unemployment Rate Total: From 15 to 64 Years for Australia"
+          }
+        }
+      ]
+    },
+    {
+      "key": "XAU",
+      "label": "Gold",
+      "drivers": [
+        {
+          "key": "real_yield",
+          "label": "US 10Y real yield",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 1.0,
+          "scale": 1.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "DFII10",
+            "resolved_title": "Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity, Inflation-Indexed"
+          }
+        },
+        {
+          "key": "usd_index",
+          "label": "Broad dollar index",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 110.0,
+          "scale": 10.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "DTWEXBGS",
+            "resolved_title": "Nominal Broad U.S. Dollar Index"
+          }
+        },
+        {
+          "key": "inflation_expectations",
+          "label": "US 10Y breakeven inflation",
+          "weight": 0.2,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 1.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "T10YIE",
+            "resolved_title": "10-Year Breakeven Inflation Rate"
+          }
+        },
+        {
+          "key": "liquidity",
+          "label": "Fed balance sheet momentum",
+          "weight": 0.15,
+          "mode": "delta",
+          "bullish_when": "higher",
+          "scale": 50000.0,
+          "stale_after_hours": 504,
+          "series": {
+            "series_id": "WALCL",
+            "resolved_title": "Assets: Total Assets: Total Assets (Less Eliminations from Consolidation)"
+          }
+        }
+      ]
+    },
+    {
+      "key": "BTC",
+      "label": "Bitcoin",
+      "drivers": [
+        {
+          "key": "usd_index",
+          "label": "Broad dollar index",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 110.0,
+          "scale": 10.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "DTWEXBGS",
+            "resolved_title": "Nominal Broad U.S. Dollar Index"
+          }
+        },
+        {
+          "key": "real_yield",
+          "label": "US 10Y real yield",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 1.0,
+          "scale": 1.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "DFII10",
+            "resolved_title": "Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity, Inflation-Indexed"
+          }
+        },
+        {
+          "key": "liquidity",
+          "label": "Fed balance sheet momentum",
+          "weight": 0.3,
+          "mode": "delta",
+          "bullish_when": "higher",
+          "scale": 50000.0,
+          "stale_after_hours": 504,
+          "series": {
+            "series_id": "WALCL",
+            "resolved_title": "Assets: Total Assets: Total Assets (Less Eliminations from Consolidation)"
+          }
+        },
+        {
+          "key": "financial_stress",
+          "label": "US financial stress",
+          "weight": 0.2,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 0.0,
+          "scale": 1.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "STLFSI4",
+            "resolved_title": "St. Louis Fed Financial Stress Index"
+          }
+        }
+      ]
+    }
+  ],
+  "instruments": [
+    {
+      "symbol": "XAUUSD",
+      "base_entity": "XAU",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "EURUSD",
+      "base_entity": "EUR",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "GBPUSD",
+      "base_entity": "GBP",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "USDJPY",
+      "base_entity": "USD",
+      "quote_entity": "JPY",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "USDCAD",
+      "base_entity": "USD",
+      "quote_entity": "CAD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "BTCUSD",
+      "base_entity": "BTC",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "AUDUSD",
+      "base_entity": "AUD",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    }
+  ]
+}

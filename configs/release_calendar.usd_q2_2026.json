@@ -1,0 +1,73 @@
+{
+  "metadata": {
+    "name": "usd-q2-2026-sample-release-calendar",
+    "description": "Sample official USD release calendar for day-trading playbooks. Maintain manually from official release schedules.",
+    "timezone_note": "Timestamps are stored with explicit local offsets from the official release source."
+  },
+  "events": [
+    {
+      "event_id": "usd-fomc-2026-04-29",
+      "label": "FOMC Statement",
+      "currency": "USD",
+      "impact": "high",
+      "timestamp": "2026-04-29T14:00:00-04:00",
+      "source_url": "https://www.federalreserve.gov/newsevents/2026-04.htm"
+    },
+    {
+      "event_id": "usd-pce-2026-04-30",
+      "label": "Personal Income and Outlays",
+      "currency": "USD",
+      "impact": "high",
+      "timestamp": "2026-04-30T08:30:00-04:00",
+      "source_url": "https://www.bea.gov/news/2026/personal-income-and-outlays-february-2026"
+    },
+    {
+      "event_id": "usd-nfp-2026-05-08",
+      "label": "Employment Situation",
+      "currency": "USD",
+      "impact": "high",
+      "timestamp": "2026-05-08T08:30:00-04:00",
+      "source_url": "https://www.bls.gov/schedule/news_release/empsit.htm"
+    },
+    {
+      "event_id": "usd-cpi-2026-05-12",
+      "label": "Consumer Price Index",
+      "currency": "USD",
+      "impact": "high",
+      "timestamp": "2026-05-12T08:30:00-04:00",
+      "source_url": "https://www.bls.gov/schedule/news_release/cpi.htm"
+    },
+    {
+      "event_id": "usd-fomc-minutes-2026-05-20",
+      "label": "FOMC Minutes",
+      "currency": "USD",
+      "impact": "medium",
+      "timestamp": "2026-05-20T14:00:00-04:00",
+      "source_url": "https://www.federalreserve.gov/newsevents/2026-may.htm"
+    },
+    {
+      "event_id": "usd-pce-2026-05-28",
+      "label": "Personal Income and Outlays",
+      "currency": "USD",
+      "impact": "high",
+      "timestamp": "2026-05-28T08:30:00-04:00",
+      "source_url": "https://www.bea.gov/index.php/news/2026/personal-income-and-outlays-december-2025"
+    },
+    {
+      "event_id": "usd-nfp-2026-06-05",
+      "label": "Employment Situation",
+      "currency": "USD",
+      "impact": "high",
+      "timestamp": "2026-06-05T08:30:00-04:00",
+      "source_url": "https://www.bls.gov/schedule/news_release/empsit.htm"
+    },
+    {
+      "event_id": "usd-cpi-2026-06-10",
+      "label": "Consumer Price Index",
+      "currency": "USD",
+      "impact": "high",
+      "timestamp": "2026-06-10T08:30:00-04:00",
+      "source_url": "https://www.bls.gov/schedule/news_release/cpi.htm"
+    }
+  ]
+}

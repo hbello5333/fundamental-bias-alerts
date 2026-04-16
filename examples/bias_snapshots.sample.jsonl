@@ -1,0 +1,4 @@
+{"timestamp_utc":"2026-04-16T00:00:00+00:00","hour_bucket_utc":"2026-04-16T00:00:00+00:00","symbol":"EURUSD","direction":"bullish","confidence":0.82}
+{"timestamp_utc":"2026-04-16T01:00:00+00:00","hour_bucket_utc":"2026-04-16T01:00:00+00:00","symbol":"EURUSD","direction":"bearish","confidence":0.78}
+{"timestamp_utc":"2026-04-16T00:00:00+00:00","hour_bucket_utc":"2026-04-16T00:00:00+00:00","symbol":"BTCUSD","direction":"bearish","confidence":0.93}
+{"timestamp_utc":"2026-04-16T01:00:00+00:00","hour_bucket_utc":"2026-04-16T01:00:00+00:00","symbol":"BTCUSD","direction":"bullish","confidence":0.64}

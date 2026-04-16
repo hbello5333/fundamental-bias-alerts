@@ -1,0 +1,598 @@
+{
+  "metadata": {
+    "name": "fundamentals-only-hourly-bias",
+    "version": "0.4.0",
+    "description": "Research-oriented hourly macro bias engine for top 7 instruments."
+  },
+  "alerting": {
+    "state_path": ".state/alert_state.json",
+    "emit_on_first_run": true,
+    "min_score_change": 0.35
+  },
+  "research": {
+    "snapshot_path": "data/bias_snapshots.jsonl"
+  },
+  "day_trading": {
+    "min_confidence": 0.7,
+    "max_stale_drivers": 1,
+    "sessions": [
+      {
+        "key": "asia",
+        "label": "Asia",
+        "timezone": "Asia/Tokyo",
+        "start_time": "09:00",
+        "end_time": "12:00"
+      },
+      {
+        "key": "london",
+        "label": "London",
+        "timezone": "Europe/London",
+        "start_time": "07:00",
+        "end_time": "11:00"
+      },
+      {
+        "key": "new_york",
+        "label": "New York",
+        "timezone": "America/New_York",
+        "start_time": "08:00",
+        "end_time": "11:30"
+      }
+    ],
+    "instrument_sessions": {
+      "XAUUSD": ["london", "new_york"],
+      "EURUSD": ["london", "new_york"],
+      "GBPUSD": ["london", "new_york"],
+      "USDJPY": ["asia", "london", "new_york"],
+      "USDCAD": ["new_york"],
+      "BTCUSD": ["london", "new_york"],
+      "AUDUSD": ["asia", "london", "new_york"]
+    },
+    "event_policies": [
+      {
+        "currency": "USD",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["new_york"]
+      },
+      {
+        "currency": "USD",
+        "impact": "medium",
+        "block_before_minutes": 5,
+        "block_after_minutes": 10,
+        "preferred_sessions": ["new_york"]
+      },
+      {
+        "currency": "EUR",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["london"]
+      },
+      {
+        "currency": "GBP",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["london"]
+      },
+      {
+        "currency": "JPY",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["asia"]
+      },
+      {
+        "currency": "CAD",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["new_york"]
+      },
+      {
+        "currency": "AUD",
+        "impact": "high",
+        "block_before_minutes": 10,
+        "block_after_minutes": 20,
+        "preferred_sessions": ["asia"]
+      }
+    ]
+  },
+  "entities": [
+    {
+      "key": "USD",
+      "label": "US Dollar",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "Fed policy rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "DFF"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "US CPI momentum",
+          "weight": 0.1,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.003,
+          "stale_after_hours": 1440,
+          "series": {
+            "series_id": "CPIAUCSL"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "US industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 1440,
+          "series": {
+            "series_id": "INDPRO"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "US unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 5.0,
+          "scale": 2.0,
+          "stale_after_hours": 1440,
+          "series": {
+            "series_id": "UNRATE"
+          }
+        }
+      ]
+    },
+    {
+      "key": "EUR",
+      "label": "Euro",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "ECB policy rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "series_id": "ECBMRRFR"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "Euro area inflation momentum",
+          "weight": 0.1,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.003,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Consumer Price Index: All Items for Euro Area"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "Euro area industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Industrial Production: Total Industry Excluding Construction for Euro Area"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "Euro area unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 7.0,
+          "scale": 2.0,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Harmonized Unemployment Rate: Total: All Persons for Euro Area"
+          }
+        }
+      ]
+    },
+    {
+      "key": "GBP",
+      "label": "British Pound",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "Bank of England rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "search_text": "Bank Rate for United Kingdom"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "UK inflation momentum",
+          "weight": 0.1,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.003,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Consumer Price Index: All Items for the United Kingdom"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "UK industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Industrial Production: Total Index for United Kingdom"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "UK unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 5.0,
+          "scale": 2.0,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Unemployment Rate: Aged 15-74: All Persons for the United Kingdom"
+          }
+        }
+      ]
+    },
+    {
+      "key": "JPY",
+      "label": "Japanese Yen",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "Japan policy proxy",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 0.5,
+          "scale": 1.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "search_text": "Interest Rates: Immediate Rates (< 24 Hours): Call Money/Interbank Rate: Total for Japan"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "Japan inflation momentum",
+          "weight": 0.1,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.002,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Consumer Price Index: All Items for Japan"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "Japan industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Industrial Production: Total Index for Japan"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "Japan unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 3.0,
+          "scale": 1.5,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Unemployment Rate: Aged 15-64: All Persons for Japan"
+          }
+        }
+      ]
+    },
+    {
+      "key": "CAD",
+      "label": "Canadian Dollar",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "Bank of Canada rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "search_text": "Overnight Repo Rate Average for Canada"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "Canada inflation momentum",
+          "weight": 0.1,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.003,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Consumer Price Index: All Items for Canada"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "Canada industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Industrial Production: Total Index for Canada"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "Canada unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 6.0,
+          "scale": 2.0,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Unemployment Rate: Aged 15-64: All Persons for Canada"
+          }
+        }
+      ]
+    },
+    {
+      "key": "AUD",
+      "label": "Australian Dollar",
+      "drivers": [
+        {
+          "key": "policy_rate",
+          "label": "RBA cash rate",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 2.0,
+          "stale_after_hours": 4320,
+          "series": {
+            "search_text": "Cash Rate Target for Australia"
+          }
+        },
+        {
+          "key": "inflation_momentum",
+          "label": "Australia inflation momentum",
+          "weight": 0.1,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.003,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Consumer Price Index: All Items for Australia"
+          }
+        },
+        {
+          "key": "growth_momentum",
+          "label": "Australia industrial production momentum",
+          "weight": 0.25,
+          "mode": "pct_change",
+          "bullish_when": "higher",
+          "scale": 0.004,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Industrial Production: Total Index for Australia"
+          }
+        },
+        {
+          "key": "labor_slack",
+          "label": "Australia unemployment",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 5.0,
+          "scale": 2.0,
+          "stale_after_hours": 1440,
+          "series": {
+            "search_text": "Unemployment Rate: Aged 15-64: All Persons for Australia"
+          }
+        }
+      ]
+    },
+    {
+      "key": "XAU",
+      "label": "Gold",
+      "drivers": [
+        {
+          "key": "real_yield",
+          "label": "US 10Y real yield",
+          "weight": 0.4,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 1.0,
+          "scale": 1.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "DFII10"
+          }
+        },
+        {
+          "key": "usd_index",
+          "label": "Broad dollar index",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 110.0,
+          "scale": 10.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "DTWEXBGS"
+          }
+        },
+        {
+          "key": "inflation_expectations",
+          "label": "US 10Y breakeven inflation",
+          "weight": 0.2,
+          "mode": "level",
+          "bullish_when": "higher",
+          "neutral_value": 2.0,
+          "scale": 1.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "T10YIE"
+          }
+        },
+        {
+          "key": "liquidity",
+          "label": "Fed balance sheet momentum",
+          "weight": 0.15,
+          "mode": "delta",
+          "bullish_when": "higher",
+          "scale": 50000.0,
+          "stale_after_hours": 504,
+          "series": {
+            "series_id": "WALCL"
+          }
+        }
+      ]
+    },
+    {
+      "key": "BTC",
+      "label": "Bitcoin",
+      "drivers": [
+        {
+          "key": "usd_index",
+          "label": "Broad dollar index",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 110.0,
+          "scale": 10.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "DTWEXBGS"
+          }
+        },
+        {
+          "key": "real_yield",
+          "label": "US 10Y real yield",
+          "weight": 0.25,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 1.0,
+          "scale": 1.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "DFII10"
+          }
+        },
+        {
+          "key": "liquidity",
+          "label": "Fed balance sheet momentum",
+          "weight": 0.3,
+          "mode": "delta",
+          "bullish_when": "higher",
+          "scale": 50000.0,
+          "stale_after_hours": 504,
+          "series": {
+            "series_id": "WALCL"
+          }
+        },
+        {
+          "key": "financial_stress",
+          "label": "US financial stress",
+          "weight": 0.2,
+          "mode": "level",
+          "bullish_when": "lower",
+          "neutral_value": 0.0,
+          "scale": 1.0,
+          "stale_after_hours": 168,
+          "series": {
+            "series_id": "STLFSI4"
+          }
+        }
+      ]
+    }
+  ],
+  "instruments": [
+    {
+      "symbol": "XAUUSD",
+      "base_entity": "XAU",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "EURUSD",
+      "base_entity": "EUR",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "GBPUSD",
+      "base_entity": "GBP",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "USDJPY",
+      "base_entity": "USD",
+      "quote_entity": "JPY",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "USDCAD",
+      "base_entity": "USD",
+      "quote_entity": "CAD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "BTCUSD",
+      "base_entity": "BTC",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    },
+    {
+      "symbol": "AUDUSD",
+      "base_entity": "AUD",
+      "quote_entity": "USD",
+      "threshold": 0.3
+    }
+  ]
+}
