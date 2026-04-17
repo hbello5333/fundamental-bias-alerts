@@ -144,4 +144,11 @@ def _parse_day_trading(raw_day_trading: dict[str, object] | None) -> DayTradingC
         instrument_sessions=instrument_sessions,
         event_policies=event_policies,
         max_ranked_setups=int(raw_day_trading.get("max_ranked_setups", 2)),
+        risk_per_trade_pct=float(raw_day_trading.get("risk_per_trade_pct", 0.25)),
+        target_r_multiple=float(raw_day_trading.get("target_r_multiple", 2.0)),
+        default_stop_loss_pct=float(raw_day_trading.get("default_stop_loss_pct", 0.0035)),
+        stop_loss_pct_by_symbol={
+            str(symbol): float(value)
+            for symbol, value in raw_day_trading.get("stop_loss_pct_by_symbol", {}).items()
+        },
     )

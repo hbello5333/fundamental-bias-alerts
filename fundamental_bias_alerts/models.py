@@ -11,6 +11,7 @@ DataState = Literal["ok", "missing", "stale", "error"]
 EventImpact = Literal["high", "medium", "low"]
 AllowedDirection = Literal["long_only", "short_only", "no_trade"]
 TradeState = Literal["ready", "lockout", "no_trade"]
+ExecutionPlanState = Literal["blocked", "needs_price", "waiting_for_session", "ready_now"]
 
 
 @dataclass(frozen=True)
@@ -140,6 +141,10 @@ class DayTradingConfig:
     instrument_sessions: dict[str, tuple[str, ...]]
     event_policies: tuple[EventPolicySpec, ...]
     max_ranked_setups: int = 2
+    risk_per_trade_pct: float = 0.25
+    target_r_multiple: float = 2.0
+    default_stop_loss_pct: float = 0.0035
+    stop_loss_pct_by_symbol: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -204,6 +209,29 @@ class NoTradeWindow:
 
 
 @dataclass(frozen=True)
+class TradeExecutionPlan:
+    status: ExecutionPlanState
+    entry_style: str
+    stop_loss_pct: float
+    target_r_multiple: float
+    risk_per_trade_pct: float
+    reference_price: float | None = None
+    entry_price: float | None = None
+    stop_price: float | None = None
+    target_price: float | None = None
+    stop_distance_price: float | None = None
+    target_distance_price: float | None = None
+    account_size: float | None = None
+    risk_amount: float | None = None
+    position_size_units: float | None = None
+    notional_value_usd: float | None = None
+    activation_start_utc: datetime | None = None
+    expiry_utc: datetime | None = None
+    session_label: str = ""
+    notes: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class DayTradeInstrumentPlaybook:
     symbol: str
     bias: Direction
@@ -219,6 +247,7 @@ class DayTradeInstrumentPlaybook:
     notes: tuple[str, ...] = field(default_factory=tuple)
     tradable_rank: int | None = None
     is_top_setup: bool = False
+    execution_plan: TradeExecutionPlan | None = None
 
 
 @dataclass(frozen=True)

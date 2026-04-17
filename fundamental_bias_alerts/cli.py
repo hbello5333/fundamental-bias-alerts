@@ -78,6 +78,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print a trader-friendly plain-English brief instead of JSON.",
     )
+    day_trade.add_argument(
+        "--reference-price",
+        action="append",
+        default=[],
+        help="Repeat with SYMBOL=PRICE to compute exact paper-trade entry, stop, and target levels.",
+    )
+    day_trade.add_argument(
+        "--account-size",
+        type=float,
+        default=0.0,
+        help="Optional account size in USD for risk amount and position size calculations.",
+    )
 
     validate = subparsers.add_parser("validate-prices", help="Score snapshot edge against hourly close data")
     validate.add_argument("--prices", required=True)
@@ -164,6 +176,8 @@ def main(argv: list[str] | None = None) -> int:
                 calendar_path=Path(args.calendar),
                 trade_date_text=args.trade_date,
                 brief=args.brief,
+                reference_price_texts=args.reference_price,
+                account_size=args.account_size,
             )
         if args.command == "validate-prices":
             return cmd_validate_prices(
@@ -321,11 +335,24 @@ def cmd_day_trade_playbook(
     calendar_path: Path,
     trade_date_text: str,
     brief: bool,
+    reference_price_texts: list[str],
+    account_size: float,
 ) -> int:
     config = load_strategy_config(config_path)
     calendar = load_release_calendar(calendar_path)
     client = _build_client()
     as_of = datetime.now(tz=UTC)
+    reference_prices = _parse_reference_prices(reference_price_texts)
+    valid_symbols = {instrument.symbol for instrument in config.instruments}
+    unknown_symbols = sorted(set(reference_prices) - valid_symbols)
+    if unknown_symbols:
+        raise ValueError(
+            "Reference prices were supplied for unknown symbols: "
+            + ", ".join(unknown_symbols)
+            + "."
+        )
+    if account_size < 0:
+        raise ValueError("--account-size must be zero or a positive USD value.")
     results = _score_results(config, client=client, as_of=as_of)
     playbook = generate_day_trade_playbook(
         config=config,
@@ -333,6 +360,8 @@ def cmd_day_trade_playbook(
         results=results,
         trade_date=_parse_trade_date(trade_date_text, as_of=as_of),
         as_of=as_of,
+        reference_prices=reference_prices,
+        account_size=account_size or None,
     )
     if brief:
         print(format_day_trade_playbook_brief(playbook))
@@ -523,6 +552,29 @@ def _load_optional_calendar(path_text: str) -> ReleaseCalendar | None:
     if not path_text:
         return None
     return load_release_calendar(path_text)
+
+
+def _parse_reference_prices(values: list[str]) -> dict[str, float]:
+    prices: dict[str, float] = {}
+    for raw_value in values:
+        if "=" not in raw_value:
+            raise ValueError(
+                f"Reference price {raw_value!r} is invalid. Use SYMBOL=PRICE, for example EURUSD=1.0825."
+            )
+        symbol_text, price_text = raw_value.split("=", 1)
+        symbol = symbol_text.strip().upper()
+        if not symbol:
+            raise ValueError("Reference price symbol cannot be empty.")
+        try:
+            price = float(price_text)
+        except ValueError as exc:
+            raise ValueError(
+                f"Reference price {raw_value!r} is invalid. PRICE must be numeric."
+            ) from exc
+        if price <= 0:
+            raise ValueError(f"Reference price for {symbol} must be positive.")
+        prices[symbol] = price
+    return prices
 
 
 if __name__ == "__main__":

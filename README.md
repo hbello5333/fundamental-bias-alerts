@@ -24,6 +24,7 @@ The goal is to build a researchable, auditable alert engine. It is not safe or h
 - Generates a day-trading playbook with allowed direction, valid sessions, and no-trade windows around scheduled macro events.
 - Ranks the top tradable setups so you can focus on the best 1 to 2 ideas instead of forcing trades across all 7 instruments.
 - Appends each hourly day-trade signal to a paper-trade journal for later review.
+- Turns a playbook into an exact paper-trade ticket when you supply reference prices and account size.
 - Includes a Render-ready background worker blueprint for 24/7 cloud deployment.
 
 ## Why FRED / ALFRED
@@ -92,6 +93,12 @@ Trader-ready brief:
 python -m fundamental_bias_alerts.cli day-trade-playbook --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json --trade-date 2026-04-17 --brief
 ```
 
+Exact paper-trade ticket:
+
+```powershell
+python -m fundamental_bias_alerts.cli day-trade-playbook --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json --trade-date 2026-04-17 --reference-price EURUSD=1.0825 --reference-price XAUUSD=3320.50 --account-size 10000 --brief
+```
+
 This command combines:
 
 - the latest live macro bias from FRED
@@ -110,8 +117,16 @@ The output includes:
 - `tradable_rank`
 - `is_top_setup`
 - `top_setups`
+- `execution_plan`
 - `valid_sessions`
 - `no_trade_windows`
+
+`execution_plan.status` meanings:
+
+- `ready_now`: the setup is tradable now and the ticket includes exact levels.
+- `waiting_for_session`: the bias is tradable, but you should wait for the next valid session window.
+- `needs_price`: the setup is tradable, but you did not provide a reference price for exact levels.
+- `blocked`: the setup is not tradable because it is neutral, stale, low-confidence, locked out, or out of session for the trade date.
 
 Webhook alerts:
 
@@ -165,6 +180,7 @@ powershell -ExecutionPolicy Bypass -File scripts\\run-paper-hourly.ps1 -Telegram
 powershell -ExecutionPolicy Bypass -File scripts\\register-hourly-task.ps1 -UseTelegram
 powershell -ExecutionPolicy Bypass -File scripts\\day-trade-playbook.ps1
 powershell -ExecutionPolicy Bypass -File scripts\\day-trade-playbook.ps1 -TradeDate 2026-04-17 -Brief
+powershell -ExecutionPolicy Bypass -File scripts\\day-trade-playbook.ps1 -TradeDate 2026-04-17 -Brief -ReferencePrice EURUSD=1.0825,XAUUSD=3320.5 -AccountSize 10000
 powershell -ExecutionPolicy Bypass -File scripts\\validate-paper-study.ps1 -Prices your_hourly_prices.csv
 ```
 
@@ -212,7 +228,7 @@ Validation report highlights:
 - `python -m fundamental_bias_alerts.cli telegram-test`
   Sends a Telegram test message using `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
 - `python -m fundamental_bias_alerts.cli day-trade-playbook --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json`
-  Produces a session-aware day-trading playbook from live macro bias and a scheduled release calendar. Add `--brief` for a trader-readable summary with action, why, sessions, and lockouts.
+  Produces a session-aware day-trading playbook from live macro bias and a scheduled release calendar. Add `--brief` for a trader-readable summary with action, why, sessions, lockouts, and execution-plan notes. Add repeated `--reference-price SYMBOL=PRICE` plus `--account-size` for exact paper-trade levels.
 - `python -m fundamental_bias_alerts.cli validate-prices --snapshots data/bias_snapshots.jsonl --prices your_hourly_prices.csv --horizon-hours 1 --horizon-hours 4 --horizon-hours 24 --min-cohort-samples 10 --max-ranked-cohorts 25`
   Measures directional edge using stored bias snapshots and hourly close data, including confidence sweeps and ranked cohorts.
 

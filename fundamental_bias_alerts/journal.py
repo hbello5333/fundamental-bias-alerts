@@ -82,6 +82,35 @@ def _journal_entry(
             for ranked_item in playbook.items
             if ranked_item.is_top_setup
         ],
+        "execution_plan": item.execution_plan and {
+            "status": item.execution_plan.status,
+            "entry_style": item.execution_plan.entry_style,
+            "stop_loss_pct": round(item.execution_plan.stop_loss_pct, 6),
+            "target_r_multiple": round(item.execution_plan.target_r_multiple, 6),
+            "risk_per_trade_pct": round(item.execution_plan.risk_per_trade_pct, 6),
+            "reference_price": _rounded_value(item.execution_plan.reference_price),
+            "entry_price": _rounded_value(item.execution_plan.entry_price),
+            "stop_price": _rounded_value(item.execution_plan.stop_price),
+            "target_price": _rounded_value(item.execution_plan.target_price),
+            "stop_distance_price": _rounded_value(item.execution_plan.stop_distance_price),
+            "target_distance_price": _rounded_value(item.execution_plan.target_distance_price),
+            "account_size": _rounded_value(item.execution_plan.account_size),
+            "risk_amount": _rounded_value(item.execution_plan.risk_amount),
+            "position_size_units": _rounded_value(item.execution_plan.position_size_units),
+            "notional_value_usd": _rounded_value(item.execution_plan.notional_value_usd),
+            "activation_start_utc": (
+                item.execution_plan.activation_start_utc.isoformat()
+                if item.execution_plan.activation_start_utc is not None
+                else None
+            ),
+            "expiry_utc": (
+                item.execution_plan.expiry_utc.isoformat()
+                if item.execution_plan.expiry_utc is not None
+                else None
+            ),
+            "session_label": item.execution_plan.session_label,
+            "notes": list(item.execution_plan.notes),
+        },
     }
 
 
@@ -93,3 +122,9 @@ def _action_value(item: DayTradeInstrumentPlaybook) -> str:
     if item.allowed_direction == "short_only":
         return "sell"
     return "no_trade"
+
+
+def _rounded_value(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(value, 6)

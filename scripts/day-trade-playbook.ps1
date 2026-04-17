@@ -3,7 +3,9 @@ param(
     [string]$Config = "configs/locked.json",
     [string]$Calendar = "configs/release_calendar.usd_q2_2026.json",
     [string]$TradeDate = "",
-    [switch]$Brief
+    [switch]$Brief,
+    [string[]]$ReferencePrice = @(),
+    [double]$AccountSize = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +22,14 @@ try {
 
     if ($TradeDate) {
         $arguments += @("--trade-date", $TradeDate)
+    }
+
+    foreach ($PriceSpec in $ReferencePrice) {
+        $arguments += @("--reference-price", $PriceSpec)
+    }
+
+    if ($AccountSize -gt 0) {
+        $arguments += @("--account-size", $AccountSize.ToString([System.Globalization.CultureInfo]::InvariantCulture))
     }
 
     if ($Brief) {

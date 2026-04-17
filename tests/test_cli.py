@@ -10,7 +10,12 @@ from pathlib import Path
 from uuid import uuid4
 
 from fundamental_bias_alerts.alerts import TelegramAlertSink
-from fundamental_bias_alerts.cli import _build_sinks, _next_interval_boundary, _run_cycle
+from fundamental_bias_alerts.cli import (
+    _build_sinks,
+    _next_interval_boundary,
+    _parse_reference_prices,
+    _run_cycle,
+)
 from fundamental_bias_alerts.models import (
     AlertingConfig,
     DayTradingConfig,
@@ -163,6 +168,10 @@ class CliRunCycleTests(unittest.TestCase):
                 ),
                 instrument_sessions={"EURUSD": ("london",)},
                 event_policies=(),
+                risk_per_trade_pct=0.25,
+                target_r_multiple=2.0,
+                default_stop_loss_pct=0.003,
+                stop_loss_pct_by_symbol={},
             ),
             entities={
                 "USD": EntitySpec(
@@ -242,6 +251,21 @@ class CliRunCycleTests(unittest.TestCase):
         self.assertEqual(journal_entry["action"], "sell")
         self.assertEqual(journal_entry["tradable_rank"], 1)
         self.assertTrue(journal_entry["is_top_setup"])
+        self.assertEqual(journal_entry["execution_plan"]["status"], "needs_price")
+
+    def test_parse_reference_prices_reads_symbol_price_pairs(self) -> None:
+        prices = _parse_reference_prices(["eurusd=1.0825", "XAUUSD=3300.5"])
+
+        self.assertEqual(prices["EURUSD"], 1.0825)
+        self.assertEqual(prices["XAUUSD"], 3300.5)
+
+    def test_parse_reference_prices_rejects_invalid_pairs(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Use SYMBOL=PRICE"):
+            _parse_reference_prices(["EURUSD"])
+
+    def test_parse_reference_prices_rejects_non_positive_values(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            _parse_reference_prices(["EURUSD=0"])
 
     def test_build_sinks_adds_telegram_sink_when_envs_are_present(self) -> None:
         previous_token = os.environ.get("TEST_TELEGRAM_BOT_TOKEN")

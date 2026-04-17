@@ -226,6 +226,7 @@ class DayTradePlaybookTests(unittest.TestCase):
         self.assertEqual(item_payload["bias_reasons"], ["ECB policy rate strong", "US CPI soft"])
         self.assertEqual(item_payload["tradable_rank"], 1)
         self.assertTrue(item_payload["is_top_setup"])
+        self.assertEqual(item_payload["execution_plan"]["status"], "needs_price")
 
         brief = format_day_trade_playbook_brief(playbook)
         self.assertIn("Top setups: #1 EURUSD BUY ONLY", brief)
@@ -233,6 +234,7 @@ class DayTradePlaybookTests(unittest.TestCase):
         self.assertIn("Why: ECB policy rate strong; US CPI soft", brief)
         self.assertIn("Sessions: London", brief)
         self.assertIn("Lockouts: None", brief)
+        self.assertIn("Plan: needs price", brief)
 
     def test_playbook_ranks_ready_setups_and_keeps_only_top_two_flagged(self) -> None:
         config = self._strategy_config()
@@ -297,6 +299,72 @@ class DayTradePlaybookTests(unittest.TestCase):
         self.assertEqual(ranked["AUDUSD"].tradable_rank, 3)
         self.assertFalse(ranked["AUDUSD"].is_top_setup)
 
+    def test_execution_plan_computes_exact_levels_and_position_size(self) -> None:
+        config = self._strategy_config()
+        results = [
+            InstrumentResult(
+                symbol="EURUSD",
+                score=0.55,
+                confidence=0.82,
+                direction="bullish",
+                threshold=0.3,
+                reasons=("ECB policy rate strong", "US CPI soft"),
+                base_result=EntityResult(key="EUR", label="Euro", score=0.4, confidence=0.9, drivers=()),
+                quote_result=EntityResult(key="USD", label="US Dollar", score=-0.15, confidence=0.8, drivers=()),
+            )
+        ]
+
+        playbook = generate_day_trade_playbook(
+            config=config,
+            calendar=ReleaseCalendar(events=()),
+            results=results,
+            trade_date=date(2026, 4, 30),
+            as_of=datetime(2026, 4, 30, 8, 0, tzinfo=UTC),
+            reference_prices={"EURUSD": 1.1},
+            account_size=10000.0,
+        )
+
+        plan = playbook.items[0].execution_plan
+        self.assertIsNotNone(plan)
+        assert plan is not None
+        self.assertEqual(plan.status, "ready_now")
+        self.assertAlmostEqual(plan.entry_price or 0.0, 1.1, places=6)
+        self.assertAlmostEqual(plan.stop_price or 0.0, 1.0967, places=6)
+        self.assertAlmostEqual(plan.target_price or 0.0, 1.1066, places=6)
+        self.assertAlmostEqual(plan.risk_amount or 0.0, 25.0, places=6)
+        self.assertAlmostEqual(plan.position_size_units or 0.0, 7575.757576, places=5)
+        self.assertAlmostEqual(plan.notional_value_usd or 0.0, 8333.333333, places=5)
+
+    def test_execution_plan_for_next_session_warns_to_refresh_reference_price(self) -> None:
+        config = self._strategy_config()
+        results = [
+            InstrumentResult(
+                symbol="EURUSD",
+                score=0.55,
+                confidence=0.82,
+                direction="bullish",
+                threshold=0.3,
+                reasons=("ECB policy rate strong",),
+                base_result=EntityResult(key="EUR", label="Euro", score=0.4, confidence=0.9, drivers=()),
+                quote_result=EntityResult(key="USD", label="US Dollar", score=-0.15, confidence=0.8, drivers=()),
+            )
+        ]
+
+        playbook = generate_day_trade_playbook(
+            config=config,
+            calendar=ReleaseCalendar(events=()),
+            results=results,
+            trade_date=date(2026, 4, 30),
+            as_of=datetime(2026, 4, 30, 5, 0, tzinfo=UTC),
+            reference_prices={"EURUSD": 1.1},
+        )
+
+        plan = playbook.items[0].execution_plan
+        self.assertIsNotNone(plan)
+        assert plan is not None
+        self.assertEqual(plan.status, "waiting_for_session")
+        self.assertTrue(any("Refresh the reference price" in note for note in plan.notes))
+
     def _strategy_config(self) -> StrategyConfig:
         return StrategyConfig(
             metadata={"name": "test", "version": "0.5.0"},
@@ -310,6 +378,10 @@ class DayTradePlaybookTests(unittest.TestCase):
                 min_confidence=0.7,
                 max_stale_drivers=1,
                 max_ranked_setups=2,
+                risk_per_trade_pct=0.25,
+                target_r_multiple=2.0,
+                default_stop_loss_pct=0.0035,
+                stop_loss_pct_by_symbol={"EURUSD": 0.003, "GBPUSD": 0.0035, "AUDUSD": 0.0035},
                 sessions=(
                     SessionSpec(
                         key="asia",

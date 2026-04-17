@@ -18,6 +18,7 @@ from .models import (
     SessionSpec,
     SessionWindow,
     StrategyConfig,
+    TradeExecutionPlan,
 )
 
 
@@ -28,6 +29,8 @@ def generate_day_trade_playbook(
     results: list[InstrumentResult],
     trade_date: date,
     as_of: datetime | None = None,
+    reference_prices: dict[str, float] | None = None,
+    account_size: float | None = None,
 ) -> DayTradePlaybook:
     if config.day_trading is None:
         raise ValueError("Strategy config does not include a day_trading section.")
@@ -52,11 +55,22 @@ def generate_day_trade_playbook(
         items,
         max_ranked_setups=config.day_trading.max_ranked_setups,
     )
+    planned_items = tuple(
+        _with_execution_plan(
+            item=item,
+            instrument=instrument_specs[item.symbol],
+            config=config.day_trading,
+            as_of=as_of_utc,
+            reference_price=(reference_prices or {}).get(item.symbol),
+            account_size=account_size,
+        )
+        for item in ranked_items
+    )
 
     return DayTradePlaybook(
         generated_at_utc=as_of_utc,
         trade_date_utc=trade_date,
-        items=ranked_items,
+        items=planned_items,
     )
 
 
@@ -99,6 +113,8 @@ def format_day_trade_playbook_brief(playbook: DayTradePlaybook) -> str:
                 f"Lockouts: {_lockout_summary(item)}",
             ]
         )
+        if item.execution_plan is not None:
+            lines.append(f"Plan: {_execution_plan_brief(item.execution_plan)}")
         if item.notes:
             lines.append(f"Notes: {' '.join(item.notes)}")
 
@@ -222,6 +238,146 @@ def _apply_tradable_ranks(
     )
 
 
+def _with_execution_plan(
+    *,
+    item: DayTradeInstrumentPlaybook,
+    instrument: InstrumentSpec,
+    config: DayTradingConfig,
+    as_of: datetime,
+    reference_price: float | None,
+    account_size: float | None,
+) -> DayTradeInstrumentPlaybook:
+    return replace(
+        item,
+        execution_plan=_build_execution_plan(
+            item=item,
+            instrument=instrument,
+            config=config,
+            as_of=as_of,
+            reference_price=reference_price,
+            account_size=account_size,
+        ),
+    )
+
+
+def _build_execution_plan(
+    *,
+    item: DayTradeInstrumentPlaybook,
+    instrument: InstrumentSpec,
+    config: DayTradingConfig,
+    as_of: datetime,
+    reference_price: float | None,
+    account_size: float | None,
+) -> TradeExecutionPlan:
+    stop_loss_pct = config.stop_loss_pct_by_symbol.get(
+        item.symbol,
+        config.default_stop_loss_pct,
+    )
+    current_session = _current_session(item.valid_sessions, as_of)
+    next_session = _next_session(item.valid_sessions, as_of)
+    notes: list[str] = []
+    session_label = current_session.label if current_session else (next_session.label if next_session else "")
+    activation_start_utc = current_session.start_utc if current_session else (
+        next_session.start_utc if next_session else None
+    )
+    expiry_utc = current_session.end_utc if current_session else (next_session.end_utc if next_session else None)
+
+    if item.allowed_direction == "no_trade" or item.trade_state != "ready":
+        return TradeExecutionPlan(
+            status="blocked",
+            entry_style="market",
+            stop_loss_pct=stop_loss_pct,
+            target_r_multiple=config.target_r_multiple,
+            risk_per_trade_pct=config.risk_per_trade_pct,
+            reference_price=reference_price,
+            account_size=account_size,
+            activation_start_utc=activation_start_utc,
+            expiry_utc=expiry_utc,
+            session_label=session_label,
+            notes=("Execution blocked until the bias is tradable and out of lockout.",),
+        )
+
+    if current_session is None and next_session is None:
+        return TradeExecutionPlan(
+            status="blocked",
+            entry_style="market",
+            stop_loss_pct=stop_loss_pct,
+            target_r_multiple=config.target_r_multiple,
+            risk_per_trade_pct=config.risk_per_trade_pct,
+            reference_price=reference_price,
+            account_size=account_size,
+            notes=("No valid trading session remains for this trade date.",),
+        )
+
+    if reference_price is None:
+        if current_session is not None:
+            notes.append("Supply a reference price to compute exact entry, stop, and target levels now.")
+        else:
+            notes.append("Supply a fresh reference price before the next valid session opens.")
+        return TradeExecutionPlan(
+            status="needs_price",
+            entry_style="market",
+            stop_loss_pct=stop_loss_pct,
+            target_r_multiple=config.target_r_multiple,
+            risk_per_trade_pct=config.risk_per_trade_pct,
+            account_size=account_size,
+            activation_start_utc=activation_start_utc,
+            expiry_utc=expiry_utc,
+            session_label=session_label,
+            notes=tuple(notes),
+        )
+
+    entry_price = reference_price
+    stop_price, target_price = _price_levels(
+        direction=item.allowed_direction,
+        entry_price=entry_price,
+        stop_loss_pct=stop_loss_pct,
+        target_r_multiple=config.target_r_multiple,
+    )
+    stop_distance_price = abs(entry_price - stop_price)
+    target_distance_price = abs(target_price - entry_price)
+    risk_amount = None
+    position_size_units = None
+    notional_value_usd = None
+    if account_size is not None:
+        risk_amount = account_size * (config.risk_per_trade_pct / 100.0)
+        position_size_units = _position_size_units(
+            instrument=instrument,
+            reference_price=entry_price,
+            stop_distance_price=stop_distance_price,
+            risk_amount=risk_amount,
+        )
+        notional_value_usd = _notional_value_usd(
+            instrument=instrument,
+            reference_price=entry_price,
+            position_size_units=position_size_units,
+        )
+    if current_session is None and next_session is not None:
+        notes.append("Refresh the reference price before the next valid session opens.")
+
+    return TradeExecutionPlan(
+        status="ready_now" if current_session is not None else "waiting_for_session",
+        entry_style="market",
+        stop_loss_pct=stop_loss_pct,
+        target_r_multiple=config.target_r_multiple,
+        risk_per_trade_pct=config.risk_per_trade_pct,
+        reference_price=reference_price,
+        entry_price=entry_price,
+        stop_price=stop_price,
+        target_price=target_price,
+        stop_distance_price=stop_distance_price,
+        target_distance_price=target_distance_price,
+        account_size=account_size,
+        risk_amount=risk_amount,
+        position_size_units=position_size_units,
+        notional_value_usd=notional_value_usd,
+        activation_start_utc=activation_start_utc,
+        expiry_utc=expiry_utc,
+        session_label=session_label,
+        notes=tuple(notes),
+    )
+
+
 def _event_applies_to_instrument(event: ReleaseEvent, instrument: InstrumentSpec) -> bool:
     return event.currency in {instrument.base_entity, instrument.quote_entity}
 
@@ -291,6 +447,26 @@ def _session_window(spec: SessionSpec, trade_date: date) -> SessionWindow:
     )
 
 
+def _current_session(
+    sessions: tuple[SessionWindow, ...],
+    as_of: datetime,
+) -> SessionWindow | None:
+    for session in sessions:
+        if session.start_utc <= as_of <= session.end_utc:
+            return session
+    return None
+
+
+def _next_session(
+    sessions: tuple[SessionWindow, ...],
+    as_of: datetime,
+) -> SessionWindow | None:
+    future_sessions = [session for session in sessions if session.start_utc > as_of]
+    if not future_sessions:
+        return None
+    return min(future_sessions, key=lambda item: item.start_utc)
+
+
 def _parse_time(value: str) -> time:
     hour_text, minute_text = value.split(":", 1)
     return time(hour=int(hour_text), minute=int(minute_text))
@@ -341,6 +517,7 @@ def _playbook_item_payload(item: DayTradeInstrumentPlaybook) -> dict[str, Any]:
         ],
         "bias_reasons": list(item.bias_reasons),
         "notes": list(item.notes),
+        "execution_plan": _execution_plan_payload(item.execution_plan),
     }
 
 
@@ -359,7 +536,48 @@ def _top_setup_payload(item: DayTradeInstrumentPlaybook) -> dict[str, Any]:
         "confidence": round(item.confidence, 6),
         "score": round(item.score, 6),
         "bias_strength": round(item.bias_strength, 6),
+        "execution_plan": _execution_plan_payload(item.execution_plan),
     }
+
+
+def _execution_plan_payload(plan: TradeExecutionPlan | None) -> dict[str, Any] | None:
+    if plan is None:
+        return None
+    return {
+        "status": plan.status,
+        "entry_style": plan.entry_style,
+        "stop_loss_pct": round(plan.stop_loss_pct, 6),
+        "target_r_multiple": round(plan.target_r_multiple, 6),
+        "risk_per_trade_pct": round(plan.risk_per_trade_pct, 6),
+        "reference_price": _rounded_value(plan.reference_price),
+        "entry_price": _rounded_value(plan.entry_price),
+        "stop_price": _rounded_value(plan.stop_price),
+        "target_price": _rounded_value(plan.target_price),
+        "stop_distance_price": _rounded_value(plan.stop_distance_price),
+        "target_distance_price": _rounded_value(plan.target_distance_price),
+        "account_size": _rounded_value(plan.account_size),
+        "risk_amount": _rounded_value(plan.risk_amount),
+        "position_size_units": _rounded_value(plan.position_size_units),
+        "notional_value_usd": _rounded_value(plan.notional_value_usd),
+        "activation_start_utc": (
+            plan.activation_start_utc.astimezone(UTC).isoformat()
+            if plan.activation_start_utc is not None
+            else None
+        ),
+        "expiry_utc": (
+            plan.expiry_utc.astimezone(UTC).isoformat()
+            if plan.expiry_utc is not None
+            else None
+        ),
+        "session_label": plan.session_label,
+        "notes": list(plan.notes),
+    }
+
+
+def _rounded_value(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(value, 6)
 
 
 def _action_value(item: DayTradeInstrumentPlaybook) -> str:
@@ -407,6 +625,36 @@ def _brief_reasons(item: DayTradeInstrumentPlaybook) -> str:
     return "No dominant macro drivers were recorded."
 
 
+def _execution_plan_brief(plan: TradeExecutionPlan) -> str:
+    if plan.status == "blocked":
+        if plan.notes:
+            return "blocked | " + " ".join(plan.notes)
+        return "blocked"
+    if plan.status == "needs_price":
+        note_text = f" | {' '.join(plan.notes)}" if plan.notes else ""
+        session_text = f" | session {plan.session_label}" if plan.session_label else ""
+        return (
+            f"needs price | risk {plan.risk_per_trade_pct:.2f}% | "
+            f"stop {plan.stop_loss_pct:.2%} | target {plan.target_r_multiple:.2f}R"
+            f"{session_text}{note_text}"
+        )
+
+    core = (
+        f"{plan.status} | entry {plan.entry_price:.6f} | stop {plan.stop_price:.6f} | "
+        f"target {plan.target_price:.6f} | stop {plan.stop_loss_pct:.2%} | "
+        f"target {plan.target_r_multiple:.2f}R"
+    )
+    if plan.risk_amount is not None:
+        core += f" | risk ${plan.risk_amount:.2f}"
+    if plan.position_size_units is not None:
+        core += f" | size {plan.position_size_units:.4f} units"
+    if plan.session_label:
+        core += f" | session {plan.session_label}"
+    if plan.notes:
+        core += f" | {' '.join(plan.notes)}"
+    return core
+
+
 def _session_summary(item: DayTradeInstrumentPlaybook) -> str:
     if not item.valid_sessions:
         return "No preferred sessions configured."
@@ -429,3 +677,50 @@ def _lockout_summary(item: DayTradeInstrumentPlaybook) -> str:
         )
         for window in item.no_trade_windows
     )
+
+
+def _price_levels(
+    *,
+    direction: str,
+    entry_price: float,
+    stop_loss_pct: float,
+    target_r_multiple: float,
+) -> tuple[float, float]:
+    if direction == "long_only":
+        stop_price = entry_price * (1.0 - stop_loss_pct)
+        target_price = entry_price * (1.0 + (stop_loss_pct * target_r_multiple))
+        return stop_price, target_price
+    stop_price = entry_price * (1.0 + stop_loss_pct)
+    target_price = entry_price * (1.0 - (stop_loss_pct * target_r_multiple))
+    return stop_price, target_price
+
+
+def _position_size_units(
+    *,
+    instrument: InstrumentSpec,
+    reference_price: float,
+    stop_distance_price: float,
+    risk_amount: float,
+) -> float | None:
+    if stop_distance_price <= 0 or risk_amount <= 0:
+        return None
+    if instrument.quote_entity == "USD":
+        return risk_amount / stop_distance_price
+    if instrument.base_entity == "USD":
+        return (risk_amount * reference_price) / stop_distance_price
+    return None
+
+
+def _notional_value_usd(
+    *,
+    instrument: InstrumentSpec,
+    reference_price: float,
+    position_size_units: float | None,
+) -> float | None:
+    if position_size_units is None:
+        return None
+    if instrument.quote_entity == "USD":
+        return position_size_units * reference_price
+    if instrument.base_entity == "USD":
+        return position_size_units
+    return None

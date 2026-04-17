@@ -49,6 +49,17 @@ class ConfigOverridesTests(unittest.TestCase):
                         "snapshot_path": "data/bias_snapshots.jsonl",
                         "journal_path": "data/paper_trade_journal.jsonl",
                     },
+                    "day_trading": {
+                        "min_confidence": 0.7,
+                        "max_stale_drivers": 1,
+                        "risk_per_trade_pct": 0.25,
+                        "target_r_multiple": 2.0,
+                        "default_stop_loss_pct": 0.0035,
+                        "stop_loss_pct_by_symbol": {"EURUSD": 0.003},
+                        "sessions": [],
+                        "instrument_sessions": {},
+                        "event_policies": [],
+                    },
                     "entities": [],
                     "instruments": [],
                 }

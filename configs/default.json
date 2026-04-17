@@ -1,7 +1,7 @@
 {
   "metadata": {
     "name": "fundamentals-only-hourly-bias",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "description": "Research-oriented hourly macro bias engine for top 7 instruments."
   },
   "alerting": {
@@ -17,6 +17,18 @@
     "min_confidence": 0.7,
     "max_stale_drivers": 1,
     "max_ranked_setups": 2,
+    "risk_per_trade_pct": 0.25,
+    "target_r_multiple": 2.0,
+    "default_stop_loss_pct": 0.0035,
+    "stop_loss_pct_by_symbol": {
+      "XAUUSD": 0.006,
+      "EURUSD": 0.003,
+      "GBPUSD": 0.0035,
+      "USDJPY": 0.003,
+      "USDCAD": 0.003,
+      "BTCUSD": 0.012,
+      "AUDUSD": 0.0035
+    },
     "sessions": [
       {
         "key": "asia",
