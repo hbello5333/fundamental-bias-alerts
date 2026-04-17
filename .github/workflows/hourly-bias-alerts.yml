@@ -94,13 +94,12 @@ jobs:
             cd .runtime-state
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            cat > .gitignore <<'EOF'
-            *
-            !.gitignore
-            !storage/
-            !storage/.state/
-            !storage/.state/alert_state.json
-            EOF
+            printf '%s\n' \
+              '*' \
+              '!.gitignore' \
+              '!storage/' \
+              '!storage/.state/' \
+              '!storage/.state/alert_state.json' > .gitignore
             git add .gitignore storage/.state/alert_state.json
             if git diff --cached --quiet; then
               echo "Alert state unchanged."
