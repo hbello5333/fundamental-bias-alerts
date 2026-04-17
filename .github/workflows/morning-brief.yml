@@ -1,0 +1,68 @@
+name: Morning Trader Brief
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "47 5 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: morning-trader-brief
+  cancel-in-progress: false
+
+jobs:
+  send-brief:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install project
+        run: pip install .
+
+      - name: Send morning brief
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MORNING_BRIEF_ACCOUNT_SIZE: ${{ secrets.MORNING_BRIEF_ACCOUNT_SIZE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            python -m fundamental_bias_alerts.cli morning-brief
+            --config configs/locked.json
+            --calendar configs/release_calendar.usd_q2_2026.json
+            --telegram-token-env TELEGRAM_BOT_TOKEN
+            --telegram-chat-id-env TELEGRAM_CHAT_ID
+          )
+          if [ -n "${MORNING_BRIEF_ACCOUNT_SIZE:-}" ]; then
+            args+=(--account-size "${MORNING_BRIEF_ACCOUNT_SIZE}")
+          fi
+          "${args[@]}"
+
+      - name: Summarize run
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Morning Trader Brief"
+            echo
+            echo "- Workflow run completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')."
+            echo "- Schedule: 05:47 UTC each day."
+            echo "- Uses FRED for macro bias and Twelve Data for live reference prices when available."
+            echo "- Sends the formatted morning brief to the configured Telegram chat."
+          } >> "$GITHUB_STEP_SUMMARY"

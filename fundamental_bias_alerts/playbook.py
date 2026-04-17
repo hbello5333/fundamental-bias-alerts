@@ -121,6 +121,81 @@ def format_day_trade_playbook_brief(playbook: DayTradePlaybook) -> str:
     return "\n".join(lines)
 
 
+def format_morning_brief(playbook: DayTradePlaybook) -> str:
+    tradable_items = [
+        item
+        for item in playbook.items
+        if item.trade_state == "ready" and item.allowed_direction != "no_trade"
+    ]
+    stand_aside_items = [
+        item
+        for item in playbook.items
+        if item.trade_state != "ready" or item.allowed_direction == "no_trade"
+    ]
+    lines = [
+        (
+            "Morning Brief | "
+            f"generated {playbook.generated_at_utc.astimezone(UTC).isoformat()} | "
+            f"trade date {playbook.trade_date_utc.isoformat()}"
+        ),
+        (
+            f"Market posture: {len(tradable_items)} tradable {_pluralize('setup', len(tradable_items))}, "
+            f"{len(stand_aside_items)} stand aside."
+        ),
+    ]
+
+    top_setups = _top_setup_items(playbook)
+    if top_setups:
+        lines.append("Top setups:")
+        for item in top_setups:
+            lines.extend(
+                [
+                    "",
+                    f"#{item.tradable_rank} {item.symbol} {_action_label(item)} | confidence {item.confidence:.2f}",
+                    f"Why: {_brief_reasons(item)}",
+                    f"Sessions: {_session_summary(item)}",
+                ]
+            )
+            if item.execution_plan is not None:
+                lines.append(f"Ticket: {_execution_plan_brief(item.execution_plan)}")
+            lockouts = _lockout_summary(item)
+            if lockouts != "None":
+                lines.append(f"Lockouts: {lockouts}")
+    else:
+        lines.append("Top setups: None")
+        candidate = _highest_conviction_item(playbook)
+        if candidate is not None:
+            lines.extend(
+                [
+                    "",
+                    (
+                        "Highest-conviction stand aside: "
+                        f"{candidate.symbol} {_action_label(candidate)} | confidence {candidate.confidence:.2f}"
+                    ),
+                    f"Why: {_brief_reasons(candidate)}",
+                ]
+            )
+            if candidate.notes:
+                lines.append(f"Blocked by: {' '.join(candidate.notes)}")
+
+    additional_tradable = [
+        item.symbol
+        for item in tradable_items
+        if not item.is_top_setup
+    ]
+    if additional_tradable:
+        lines.append("")
+        lines.append("Additional tradable: " + ", ".join(additional_tradable))
+
+    stand_aside_symbols = [item.symbol for item in stand_aside_items]
+    lines.append("")
+    lines.append(
+        "Stand aside: " + (", ".join(stand_aside_symbols) if stand_aside_symbols else "None")
+    )
+
+    return "\n".join(lines)
+
+
 def _build_playbook_item(
     *,
     config: DayTradingConfig,
@@ -528,6 +603,20 @@ def _top_setup_items(playbook: DayTradePlaybook) -> list[DayTradeInstrumentPlayb
     )
 
 
+def _highest_conviction_item(playbook: DayTradePlaybook) -> DayTradeInstrumentPlaybook | None:
+    if not playbook.items:
+        return None
+    return max(
+        playbook.items,
+        key=lambda item: (
+            item.confidence,
+            item.bias_strength,
+            -item.stale_driver_count,
+            item.symbol,
+        ),
+    )
+
+
 def _top_setup_payload(item: DayTradeInstrumentPlaybook) -> dict[str, Any]:
     return {
         "symbol": item.symbol,
@@ -578,6 +667,10 @@ def _rounded_value(value: float | None) -> float | None:
     if value is None:
         return None
     return round(value, 6)
+
+
+def _pluralize(noun: str, count: int) -> str:
+    return noun if count == 1 else f"{noun}s"
 
 
 def _action_value(item: DayTradeInstrumentPlaybook) -> str:

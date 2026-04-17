@@ -1,7 +1,7 @@
 {
   "metadata": {
     "name": "fundamentals-only-hourly-bias",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "description": "Research-oriented hourly macro bias engine for top 7 instruments with manually locked FRED series IDs."
   },
   "alerting": {

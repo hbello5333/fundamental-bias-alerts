@@ -24,6 +24,7 @@ from .models import ReleaseCalendar, SeriesSpec, StrategyConfig
 from .paper_trades import PaperTradeLedgerStore
 from .playbook import (
     format_day_trade_playbook_brief,
+    format_morning_brief,
     format_day_trade_playbook_payload,
     generate_day_trade_playbook,
 )
@@ -102,6 +103,37 @@ def build_parser() -> argparse.ArgumentParser:
         default="TWELVEDATA_API_KEY",
         help="Env var name containing the Twelve Data API key used for --live-prices.",
     )
+
+    morning_brief = subparsers.add_parser(
+        "morning-brief",
+        help="Generate a concise trader-facing morning brief and optionally deliver it to Telegram",
+    )
+    morning_brief.add_argument("--config", required=True)
+    morning_brief.add_argument("--calendar", required=True)
+    morning_brief.add_argument(
+        "--trade-date",
+        default="",
+        help="UTC trade date in YYYY-MM-DD format. Defaults to today in UTC.",
+    )
+    morning_brief.add_argument(
+        "--reference-price",
+        action="append",
+        default=[],
+        help="Repeat with SYMBOL=PRICE to override or supplement live prices.",
+    )
+    morning_brief.add_argument(
+        "--account-size",
+        type=float,
+        default=0.0,
+        help="Optional account size in USD for risk amount and position size calculations.",
+    )
+    morning_brief.add_argument(
+        "--market-data-api-key-env",
+        default="TWELVEDATA_API_KEY",
+        help="Env var name containing the Twelve Data API key used for live pricing when available.",
+    )
+    morning_brief.add_argument("--telegram-token-env", default="")
+    morning_brief.add_argument("--telegram-chat-id-env", default="")
 
     live_prices = subparsers.add_parser(
         "live-prices",
@@ -216,6 +248,17 @@ def main(argv: list[str] | None = None) -> int:
                 account_size=args.account_size,
                 live_prices=args.live_prices,
                 market_data_api_key_env=args.market_data_api_key_env,
+            )
+        if args.command == "morning-brief":
+            return cmd_morning_brief(
+                config_path=Path(args.config),
+                calendar_path=Path(args.calendar),
+                trade_date_text=args.trade_date,
+                reference_price_texts=args.reference_price,
+                account_size=args.account_size,
+                market_data_api_key_env=args.market_data_api_key_env,
+                telegram_token_env=args.telegram_token_env,
+                telegram_chat_id_env=args.telegram_chat_id_env,
             )
         if args.command == "live-prices":
             return cmd_live_prices(
@@ -398,52 +441,54 @@ def cmd_day_trade_playbook(
     live_prices: bool,
     market_data_api_key_env: str,
 ) -> int:
-    config = load_strategy_config(config_path)
-    calendar = load_release_calendar(calendar_path)
-    client = _build_client()
-    as_of = datetime.now(tz=UTC)
-    valid_symbols = {instrument.symbol for instrument in config.instruments}
-    reference_prices: dict[str, float] = {}
-    if live_prices:
-        market_data_client = _build_market_data_client(
-            api_key_env=market_data_api_key_env,
-            required=True,
-        )
-        assert market_data_client is not None
-        reference_prices.update(
-            {
-                symbol: quote.price
-                for symbol, quote in _fetch_live_prices(
-                    config,
-                    market_data_client=market_data_client,
-                ).items()
-            }
-        )
-    manual_reference_prices = _parse_reference_prices(reference_price_texts)
-    unknown_symbols = sorted(set(manual_reference_prices) - valid_symbols)
-    if unknown_symbols:
-        raise ValueError(
-            "Reference prices were supplied for unknown symbols: "
-            + ", ".join(unknown_symbols)
-            + "."
-        )
-    reference_prices.update(manual_reference_prices)
-    if account_size < 0:
-        raise ValueError("--account-size must be zero or a positive USD value.")
-    results = _score_results(config, client=client, as_of=as_of)
-    playbook = generate_day_trade_playbook(
-        config=config,
-        calendar=calendar,
-        results=results,
-        trade_date=_parse_trade_date(trade_date_text, as_of=as_of),
-        as_of=as_of,
-        reference_prices=reference_prices or None,
-        account_size=account_size or None,
+    _, playbook = _build_day_trade_playbook_for_command(
+        config_path=config_path,
+        calendar_path=calendar_path,
+        trade_date_text=trade_date_text,
+        reference_price_texts=reference_price_texts,
+        account_size=account_size,
+        market_data_api_key_env=market_data_api_key_env,
+        live_price_mode="required" if live_prices else "disabled",
     )
     if brief:
         print(format_day_trade_playbook_brief(playbook))
     else:
         print(json.dumps(format_day_trade_playbook_payload(playbook), indent=2))
+    return 0
+
+
+def cmd_morning_brief(
+    *,
+    config_path: Path,
+    calendar_path: Path,
+    trade_date_text: str,
+    reference_price_texts: list[str],
+    account_size: float,
+    market_data_api_key_env: str,
+    telegram_token_env: str,
+    telegram_chat_id_env: str,
+) -> int:
+    _, playbook = _build_day_trade_playbook_for_command(
+        config_path=config_path,
+        calendar_path=calendar_path,
+        trade_date_text=trade_date_text,
+        reference_price_texts=reference_price_texts,
+        account_size=account_size,
+        market_data_api_key_env=market_data_api_key_env,
+        live_price_mode="optional",
+    )
+    rendered = format_morning_brief(playbook)
+    print(rendered)
+    if telegram_token_env or telegram_chat_id_env:
+        if not telegram_token_env or not telegram_chat_id_env:
+            raise ValueError(
+                "Telegram delivery requires both --telegram-token-env and --telegram-chat-id-env."
+            )
+        _send_telegram_text(
+            text=rendered,
+            token_env=telegram_token_env,
+            chat_id_env=telegram_chat_id_env,
+        )
     return 0
 
 
@@ -615,6 +660,17 @@ def _build_telegram_client(*, token_env: str) -> TelegramBotClient:
     )
 
 
+def _send_telegram_text(
+    *,
+    text: str,
+    token_env: str,
+    chat_id_env: str,
+) -> None:
+    client = _build_telegram_client(token_env=token_env)
+    chat_id = _required_env(chat_id_env, description="Telegram chat ID")
+    client.send_message(chat_id=chat_id, text=text)
+
+
 def _score_results(
     config: StrategyConfig,
     *,
@@ -726,6 +782,81 @@ def _fetch_live_prices(
             "Live market price lookup failed for every requested symbol."
         )
     return quotes
+
+
+def _build_day_trade_playbook_for_command(
+    *,
+    config_path: Path,
+    calendar_path: Path,
+    trade_date_text: str,
+    reference_price_texts: list[str],
+    account_size: float,
+    market_data_api_key_env: str,
+    live_price_mode: str,
+) -> tuple[StrategyConfig, object]:
+    config = load_strategy_config(config_path)
+    calendar = load_release_calendar(calendar_path)
+    client = _build_client()
+    as_of = datetime.now(tz=UTC)
+    reference_prices = _resolve_reference_prices_for_playbook(
+        config,
+        reference_price_texts=reference_price_texts,
+        market_data_api_key_env=market_data_api_key_env,
+        live_price_mode=live_price_mode,
+    )
+    if account_size < 0:
+        raise ValueError("--account-size must be zero or a positive USD value.")
+    results = _score_results(config, client=client, as_of=as_of)
+    playbook = generate_day_trade_playbook(
+        config=config,
+        calendar=calendar,
+        results=results,
+        trade_date=_parse_trade_date(trade_date_text, as_of=as_of),
+        as_of=as_of,
+        reference_prices=reference_prices or None,
+        account_size=account_size or None,
+    )
+    return config, playbook
+
+
+def _resolve_reference_prices_for_playbook(
+    config: StrategyConfig,
+    *,
+    reference_price_texts: list[str],
+    market_data_api_key_env: str,
+    live_price_mode: str,
+) -> dict[str, float]:
+    valid_symbols = {instrument.symbol for instrument in config.instruments}
+    reference_prices: dict[str, float] = {}
+    if live_price_mode not in {"disabled", "optional", "required"}:
+        raise ValueError(f"Unsupported live_price_mode {live_price_mode!r}.")
+
+    if live_price_mode != "disabled":
+        market_data_client = _build_market_data_client(
+            api_key_env=market_data_api_key_env,
+            required=(live_price_mode == "required"),
+        )
+        if market_data_client is not None:
+            reference_prices.update(
+                {
+                    symbol: quote.price
+                    for symbol, quote in _fetch_live_prices(
+                        config,
+                        market_data_client=market_data_client,
+                    ).items()
+                }
+            )
+
+    manual_reference_prices = _parse_reference_prices(reference_price_texts)
+    unknown_symbols = sorted(set(manual_reference_prices) - valid_symbols)
+    if unknown_symbols:
+        raise ValueError(
+            "Reference prices were supplied for unknown symbols: "
+            + ", ".join(unknown_symbols)
+            + "."
+        )
+    reference_prices.update(manual_reference_prices)
+    return reference_prices
 
 
 def _parse_trade_date(trade_date_text: str, *, as_of: datetime) -> date:

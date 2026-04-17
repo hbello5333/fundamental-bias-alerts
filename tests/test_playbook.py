@@ -20,6 +20,7 @@ from fundamental_bias_alerts.models import (
 )
 from fundamental_bias_alerts.playbook import (
     format_day_trade_playbook_brief,
+    format_morning_brief,
     format_day_trade_playbook_payload,
     generate_day_trade_playbook,
 )
@@ -235,6 +236,88 @@ class DayTradePlaybookTests(unittest.TestCase):
         self.assertIn("Sessions: London", brief)
         self.assertIn("Lockouts: None", brief)
         self.assertIn("Plan: needs price", brief)
+
+    def test_morning_brief_highlights_top_setup_ticket(self) -> None:
+        config = self._strategy_config()
+        results = [
+            InstrumentResult(
+                symbol="EURUSD",
+                score=0.55,
+                confidence=0.82,
+                direction="bullish",
+                threshold=0.3,
+                reasons=("ECB policy rate strong", "US CPI soft"),
+                base_result=EntityResult(key="EUR", label="Euro", score=0.4, confidence=0.9, drivers=()),
+                quote_result=EntityResult(key="USD", label="US Dollar", score=-0.15, confidence=0.8, drivers=()),
+            ),
+            InstrumentResult(
+                symbol="AUDUSD",
+                score=0.2,
+                confidence=0.6,
+                direction="neutral",
+                threshold=0.3,
+                reasons=("AUD mixed",),
+                base_result=EntityResult(key="AUD", label="Australian Dollar", score=0.2, confidence=0.7, drivers=()),
+                quote_result=EntityResult(key="USD", label="US Dollar", score=0.0, confidence=0.8, drivers=()),
+            ),
+        ]
+
+        playbook = generate_day_trade_playbook(
+            config=config,
+            calendar=ReleaseCalendar(events=()),
+            results=results,
+            trade_date=date(2026, 4, 30),
+            as_of=datetime(2026, 4, 30, 8, 0, tzinfo=UTC),
+            reference_prices={"EURUSD": 1.1},
+            account_size=10000.0,
+        )
+
+        brief = format_morning_brief(playbook)
+        self.assertIn("Morning Brief | generated", brief)
+        self.assertIn("Market posture: 1 tradable setup, 1 stand aside.", brief)
+        self.assertIn("Top setups:", brief)
+        self.assertIn("#1 EURUSD BUY ONLY | confidence 0.82", brief)
+        self.assertIn("Ticket: ready_now | entry 1.100000 | stop 1.096700 | target 1.106600", brief)
+        self.assertIn("Stand aside: AUDUSD", brief)
+
+    def test_morning_brief_handles_no_tradable_setups(self) -> None:
+        config = self._strategy_config()
+        results = [
+            InstrumentResult(
+                symbol="AUDUSD",
+                score=0.2,
+                confidence=0.6,
+                direction="neutral",
+                threshold=0.3,
+                reasons=("AUD mixed",),
+                base_result=EntityResult(key="AUD", label="Australian Dollar", score=0.2, confidence=0.7, drivers=()),
+                quote_result=EntityResult(key="USD", label="US Dollar", score=0.0, confidence=0.8, drivers=()),
+            ),
+            InstrumentResult(
+                symbol="EURUSD",
+                score=0.15,
+                confidence=0.65,
+                direction="neutral",
+                threshold=0.3,
+                reasons=("EUR mixed",),
+                base_result=EntityResult(key="EUR", label="Euro", score=0.15, confidence=0.7, drivers=()),
+                quote_result=EntityResult(key="USD", label="US Dollar", score=0.0, confidence=0.8, drivers=()),
+            ),
+        ]
+
+        playbook = generate_day_trade_playbook(
+            config=config,
+            calendar=ReleaseCalendar(events=()),
+            results=results,
+            trade_date=date(2026, 4, 30),
+            as_of=datetime(2026, 4, 30, 5, 0, tzinfo=UTC),
+        )
+
+        brief = format_morning_brief(playbook)
+        self.assertIn("Top setups: None", brief)
+        self.assertIn("Highest-conviction stand aside:", brief)
+        self.assertIn("Blocked by:", brief)
+        self.assertIn("Stand aside:", brief)
 
     def test_playbook_ranks_ready_setups_and_keeps_only_top_two_flagged(self) -> None:
         config = self._strategy_config()

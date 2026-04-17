@@ -27,6 +27,7 @@ The goal is to build a researchable, auditable alert engine. It is not safe or h
 - Turns a playbook into an exact paper-trade ticket when you supply reference prices and account size, or when live prices are available.
 - Fetches live market prices from Twelve Data for `XAUUSD`, major FX pairs, and `BTCUSD`.
 - Auto-opens and auto-closes paper trades for top setups, then logs `entry`, `stop`, `target`, `exit`, `R-multiple`, and win/loss outcomes.
+- Sends a concise morning trader brief with the top setup, why it matters, session windows, and the live-priced ticket.
 - Includes a Render-ready background worker blueprint for 24/7 cloud deployment.
 
 ## Why FRED / ALFRED
@@ -120,6 +121,12 @@ Paper-trade performance review:
 
 ```powershell
 python -m fundamental_bias_alerts.cli paper-trade-review --config configs/locked.json
+```
+
+Morning trader brief:
+
+```powershell
+python -m fundamental_bias_alerts.cli morning-brief --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json --account-size 10000
 ```
 
 This command combines:
@@ -235,6 +242,8 @@ GitHub Actions deployment:
 - It keeps `FBA_SNAPSHOT_PATH` ephemeral inside the GitHub runner to avoid committing hourly research data into the repository.
 - Store `FRED_API_KEY`, `TWELVEDATA_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` as repository secrets before using it if you want live-price-driven tickets and automated paper-trade outcomes in the cloud.
 - GitHub scheduled workflows run from the latest commit on the default branch and public-repo schedules are auto-disabled after 60 days without repository activity.
+- `.github/workflows/morning-brief.yml` sends a single daily Telegram morning brief at `05:47 UTC`, which avoids colliding with the hourly workflow at minute `17`.
+- If you want the brief to include risk dollars and size, add an optional `MORNING_BRIEF_ACCOUNT_SIZE` repository secret.
 
 Validation report highlights:
 
@@ -258,6 +267,8 @@ Validation report highlights:
   Sends a Telegram test message using `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
 - `python -m fundamental_bias_alerts.cli day-trade-playbook --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json`
   Produces a session-aware day-trading playbook from live macro bias and a scheduled release calendar. Add `--brief` for a trader-readable summary with action, why, sessions, lockouts, and execution-plan notes. Add repeated `--reference-price SYMBOL=PRICE` plus `--account-size` for exact paper-trade levels, or use `--live-prices` to fetch the prices automatically from Twelve Data.
+- `python -m fundamental_bias_alerts.cli morning-brief --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json`
+  Produces a concise daily operator brief with the top setups, why they matter, session windows, and a live-priced ticket when `TWELVEDATA_API_KEY` is available. Add `--telegram-token-env TELEGRAM_BOT_TOKEN --telegram-chat-id-env TELEGRAM_CHAT_ID` to send it directly to Telegram.
 - `python -m fundamental_bias_alerts.cli live-prices --config configs/locked.json`
   Fetches the current live prices for the configured instruments from Twelve Data so you can sanity-check the feed before trading.
 - `python -m fundamental_bias_alerts.cli paper-trade-review --config configs/locked.json`
