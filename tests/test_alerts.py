@@ -114,6 +114,30 @@ class TelegramAlertSinkTests(unittest.TestCase):
         self.assertIn("Setup rank: #1 top setup", rendered)
         self.assertIn("- ECB policy rate strong", rendered)
 
+    def test_format_telegram_alert_text_handles_trade_close_events(self) -> None:
+        rendered = format_telegram_alert_text(
+            {
+                "entry_type": "paper_trade_close",
+                "symbol": "EURUSD",
+                "action": "buy",
+                "session_label": "London",
+                "entry_price": 1.1,
+                "stop_price": 1.0967,
+                "target_price": 1.1066,
+                "exit_price": 1.1066,
+                "exit_reason": "target_hit",
+                "r_multiple": 2.0,
+                "outcome": "win",
+                "confidence": 0.82,
+                "bias_reasons": ["ECB policy rate strong", "US CPI soft"],
+            }
+        )
+
+        self.assertIn("Paper Trade Closed", rendered)
+        self.assertIn("Exit reason: target_hit", rendered)
+        self.assertIn("R multiple: 2.0", rendered)
+        self.assertIn("- ECB policy rate strong", rendered)
+
     def test_telegram_alert_sink_posts_message(self) -> None:
         class FakeResponse:
             def __enter__(self) -> "FakeResponse":

@@ -48,6 +48,7 @@ def load_strategy_config(path: str | Path) -> StrategyConfig:
     state_path_override = os.environ.get("FBA_STATE_PATH", "").strip()
     snapshot_path_override = os.environ.get("FBA_SNAPSHOT_PATH", "").strip()
     journal_path_override = os.environ.get("FBA_JOURNAL_PATH", "").strip()
+    trade_log_path_override = os.environ.get("FBA_TRADE_LOG_PATH", "").strip()
 
     alerting = AlertingConfig(
         state_path=state_path_override or raw["alerting"]["state_path"],
@@ -63,9 +64,14 @@ def load_strategy_config(path: str | Path) -> StrategyConfig:
         "journal_path",
         "data/paper_trade_journal.jsonl",
     )
+    trade_log_path = trade_log_path_override or research_raw.get(
+        "trade_log_path",
+        "data/paper_trade_ledger.jsonl",
+    )
     research = ResearchConfig(
         snapshot_path=str(snapshot_path) if snapshot_path else None,
         journal_path=str(journal_path) if journal_path else None,
+        trade_log_path=str(trade_log_path) if trade_log_path else None,
     )
     day_trading = _parse_day_trading(raw.get("day_trading"))
 

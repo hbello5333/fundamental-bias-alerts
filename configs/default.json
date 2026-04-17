@@ -1,7 +1,7 @@
 {
   "metadata": {
     "name": "fundamentals-only-hourly-bias",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Research-oriented hourly macro bias engine for top 7 instruments."
   },
   "alerting": {
@@ -11,7 +11,8 @@
   },
   "research": {
     "snapshot_path": "data/bias_snapshots.jsonl",
-    "journal_path": "data/paper_trade_journal.jsonl"
+    "journal_path": "data/paper_trade_journal.jsonl",
+    "trade_log_path": "data/paper_trade_ledger.jsonl"
   },
   "day_trading": {
     "min_confidence": 0.7,

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from urllib import request
 
-from .models import DayTradeInstrumentPlaybook, InstrumentResult
+from .models import DayTradeInstrumentPlaybook, InstrumentResult, TradeExecutionPlan
 from .telegram import TelegramBotClient
 
 
@@ -80,6 +80,7 @@ def format_alert_payload(
                 "is_top_setup": playbook_item.is_top_setup,
                 "stale_driver_count": playbook_item.stale_driver_count,
                 "no_trade_window_count": len(playbook_item.no_trade_windows),
+                "execution_plan": _execution_plan_payload(playbook_item.execution_plan),
             }
         )
     return payload
@@ -121,6 +122,10 @@ class TelegramAlertSink:
 
 
 def format_telegram_alert_text(payload: dict[str, Any]) -> str:
+    entry_type = str(payload.get("entry_type", ""))
+    if entry_type in {"paper_trade_open", "paper_trade_close"}:
+        return _format_telegram_trade_event_text(payload)
+
     reasons = payload.get("reasons", [])
     lines = [
         "Fundamental Bias Alert",
@@ -140,10 +145,51 @@ def format_telegram_alert_text(payload: dict[str, Any]) -> str:
     valid_sessions = payload.get("valid_sessions", [])
     if isinstance(valid_sessions, list) and valid_sessions:
         lines.append(f"Sessions: {', '.join(valid_sessions)}")
+    execution_plan = payload.get("execution_plan")
+    if isinstance(execution_plan, dict) and execution_plan.get("status"):
+        lines.append(f"Execution plan: {execution_plan.get('status')}")
+        if execution_plan.get("session_label"):
+            lines.append(f"Execution session: {execution_plan.get('session_label')}")
+        if (
+            execution_plan.get("entry_price") is not None
+            and execution_plan.get("stop_price") is not None
+            and execution_plan.get("target_price") is not None
+        ):
+            lines.append(
+                "Entry / Stop / Target: "
+                f"{execution_plan.get('entry_price')} / "
+                f"{execution_plan.get('stop_price')} / "
+                f"{execution_plan.get('target_price')}"
+            )
     if payload.get("base_score") is not None:
         lines.append(f"Base score: {payload.get('base_score')}")
     if payload.get("quote_score") is not None:
         lines.append(f"Quote score: {payload.get('quote_score')}")
+    if isinstance(reasons, list) and reasons:
+        lines.append("Why:")
+        lines.extend(f"- {reason}" for reason in reasons[:4])
+    return "\n".join(lines)
+
+
+def _format_telegram_trade_event_text(payload: dict[str, Any]) -> str:
+    entry_type = str(payload.get("entry_type", ""))
+    lines = [
+        "Paper Trade Opened" if entry_type == "paper_trade_open" else "Paper Trade Closed",
+        f"Symbol: {payload.get('symbol', '')}",
+        f"Action: {payload.get('action', '')}",
+        f"Session: {payload.get('session_label', '')}",
+        f"Entry: {payload.get('entry_price', '')}",
+        f"Stop: {payload.get('stop_price', '')}",
+        f"Target: {payload.get('target_price', '')}",
+    ]
+    if entry_type == "paper_trade_close":
+        lines.append(f"Exit: {payload.get('exit_price', '')}")
+        lines.append(f"Exit reason: {payload.get('exit_reason', '')}")
+        lines.append(f"R multiple: {payload.get('r_multiple', '')}")
+        lines.append(f"Outcome: {payload.get('outcome', '')}")
+    if payload.get("confidence") is not None:
+        lines.append(f"Confidence: {payload.get('confidence')}")
+    reasons = payload.get("bias_reasons", [])
     if isinstance(reasons, list) and reasons:
         lines.append("Why:")
         lines.extend(f"- {reason}" for reason in reasons[:4])
@@ -158,3 +204,21 @@ def _action_value(item: DayTradeInstrumentPlaybook) -> str:
     if item.allowed_direction == "short_only":
         return "sell"
     return "no_trade"
+
+
+def _execution_plan_payload(plan: TradeExecutionPlan | None) -> dict[str, Any] | None:
+    if plan is None:
+        return None
+    return {
+        "status": plan.status,
+        "entry_price": _rounded_value(plan.entry_price),
+        "stop_price": _rounded_value(plan.stop_price),
+        "target_price": _rounded_value(plan.target_price),
+        "session_label": plan.session_label,
+    }
+
+
+def _rounded_value(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(value, 6)

@@ -19,7 +19,9 @@ from .config import iter_series_specs, load_raw_config, load_strategy_config
 from .engine import score_instrument
 from .fred import FredClient, FredRequestError
 from .journal import PaperTradeJournalStore
+from .market_data import MarketDataRequestError, MarketPriceQuote, TwelveDataClient
 from .models import ReleaseCalendar, SeriesSpec, StrategyConfig
+from .paper_trades import PaperTradeLedgerStore
 from .playbook import (
     format_day_trade_playbook_brief,
     format_day_trade_playbook_payload,
@@ -90,6 +92,40 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Optional account size in USD for risk amount and position size calculations.",
     )
+    day_trade.add_argument(
+        "--live-prices",
+        action="store_true",
+        help="Fetch live market prices from Twelve Data instead of requiring manual --reference-price values.",
+    )
+    day_trade.add_argument(
+        "--market-data-api-key-env",
+        default="TWELVEDATA_API_KEY",
+        help="Env var name containing the Twelve Data API key used for --live-prices.",
+    )
+
+    live_prices = subparsers.add_parser(
+        "live-prices",
+        help="Fetch live market prices for the configured instruments from Twelve Data",
+    )
+    live_prices.add_argument("--config", required=True)
+    live_prices.add_argument(
+        "--symbol",
+        action="append",
+        default=[],
+        help="Repeat to limit the request to specific symbols like EURUSD. Defaults to all configured instruments.",
+    )
+    live_prices.add_argument(
+        "--market-data-api-key-env",
+        default="TWELVEDATA_API_KEY",
+        help="Env var name containing the Twelve Data API key.",
+    )
+
+    paper_trade_review = subparsers.add_parser(
+        "paper-trade-review",
+        help="Summarize paper-trade outcomes from the append-only trade ledger",
+    )
+    paper_trade_review.add_argument("--config", required=True)
+    paper_trade_review.add_argument("--max-recent-closed", type=int, default=20)
 
     validate = subparsers.add_parser("validate-prices", help="Score snapshot edge against hourly close data")
     validate.add_argument("--prices", required=True)
@@ -178,6 +214,19 @@ def main(argv: list[str] | None = None) -> int:
                 brief=args.brief,
                 reference_price_texts=args.reference_price,
                 account_size=args.account_size,
+                live_prices=args.live_prices,
+                market_data_api_key_env=args.market_data_api_key_env,
+            )
+        if args.command == "live-prices":
+            return cmd_live_prices(
+                config_path=Path(args.config),
+                symbols=args.symbol,
+                market_data_api_key_env=args.market_data_api_key_env,
+            )
+        if args.command == "paper-trade-review":
+            return cmd_paper_trade_review(
+                config_path=Path(args.config),
+                max_recent_closed=args.max_recent_closed,
             )
         if args.command == "validate-prices":
             return cmd_validate_prices(
@@ -203,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         parser.error(f"Unsupported command {args.command!r}")
         return 2
-    except (FredRequestError, TelegramRequestError, ValueError) as exc:
+    except (FredRequestError, MarketDataRequestError, TelegramRequestError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
@@ -257,13 +306,20 @@ def cmd_run(
 ) -> int:
     config = load_strategy_config(config_path)
     client = _build_client()
+    market_data_client = _build_market_data_client(required=False)
     calendar = _load_optional_calendar(calendar_path_text)
     sinks = _build_sinks(
         webhook_env=webhook_env,
         telegram_token_env=telegram_token_env,
         telegram_chat_id_env=telegram_chat_id_env,
     )
-    _run_cycle(config, client=client, sinks=sinks, calendar=calendar)
+    _run_cycle(
+        config,
+        client=client,
+        market_data_client=market_data_client,
+        sinks=sinks,
+        calendar=calendar,
+    )
     return 0
 
 
@@ -279,6 +335,7 @@ def cmd_loop(
 ) -> int:
     config = load_strategy_config(config_path)
     client = _build_client()
+    market_data_client = _build_market_data_client(required=False)
     sinks = _build_sinks(
         webhook_env=webhook_env,
         telegram_token_env=telegram_token_env,
@@ -289,6 +346,7 @@ def cmd_loop(
         _run_cycle(
             config,
             client=client,
+            market_data_client=market_data_client,
             sinks=sinks,
             calendar=_load_optional_calendar(calendar_path_text),
         )
@@ -337,20 +395,39 @@ def cmd_day_trade_playbook(
     brief: bool,
     reference_price_texts: list[str],
     account_size: float,
+    live_prices: bool,
+    market_data_api_key_env: str,
 ) -> int:
     config = load_strategy_config(config_path)
     calendar = load_release_calendar(calendar_path)
     client = _build_client()
     as_of = datetime.now(tz=UTC)
-    reference_prices = _parse_reference_prices(reference_price_texts)
     valid_symbols = {instrument.symbol for instrument in config.instruments}
-    unknown_symbols = sorted(set(reference_prices) - valid_symbols)
+    reference_prices: dict[str, float] = {}
+    if live_prices:
+        market_data_client = _build_market_data_client(
+            api_key_env=market_data_api_key_env,
+            required=True,
+        )
+        assert market_data_client is not None
+        reference_prices.update(
+            {
+                symbol: quote.price
+                for symbol, quote in _fetch_live_prices(
+                    config,
+                    market_data_client=market_data_client,
+                ).items()
+            }
+        )
+    manual_reference_prices = _parse_reference_prices(reference_price_texts)
+    unknown_symbols = sorted(set(manual_reference_prices) - valid_symbols)
     if unknown_symbols:
         raise ValueError(
             "Reference prices were supplied for unknown symbols: "
             + ", ".join(unknown_symbols)
             + "."
         )
+    reference_prices.update(manual_reference_prices)
     if account_size < 0:
         raise ValueError("--account-size must be zero or a positive USD value.")
     results = _score_results(config, client=client, as_of=as_of)
@@ -360,13 +437,75 @@ def cmd_day_trade_playbook(
         results=results,
         trade_date=_parse_trade_date(trade_date_text, as_of=as_of),
         as_of=as_of,
-        reference_prices=reference_prices,
+        reference_prices=reference_prices or None,
         account_size=account_size or None,
     )
     if brief:
         print(format_day_trade_playbook_brief(playbook))
     else:
         print(json.dumps(format_day_trade_playbook_payload(playbook), indent=2))
+    return 0
+
+
+def cmd_live_prices(
+    *,
+    config_path: Path,
+    symbols: list[str],
+    market_data_api_key_env: str,
+) -> int:
+    config = load_strategy_config(config_path)
+    valid_symbols = {instrument.symbol for instrument in config.instruments}
+    requested_symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
+    selected_symbols = requested_symbols or [instrument.symbol for instrument in config.instruments]
+    unknown_symbols = sorted(set(selected_symbols) - valid_symbols)
+    if unknown_symbols:
+        raise ValueError(
+            "Live prices were requested for unknown symbols: "
+            + ", ".join(unknown_symbols)
+            + "."
+        )
+
+    market_data_client = _build_market_data_client(
+        api_key_env=market_data_api_key_env,
+        required=True,
+    )
+    assert market_data_client is not None
+    quotes = _fetch_live_prices(
+        config,
+        market_data_client=market_data_client,
+        symbols=selected_symbols,
+    )
+    payload = {
+        "fetched_at_utc": datetime.now(tz=UTC).isoformat(),
+        "prices": [
+            {
+                "symbol": quote.symbol,
+                "provider_symbol": quote.provider_symbol,
+                "price": round(quote.price, 6),
+                "as_of_utc": quote.as_of_utc.astimezone(UTC).isoformat(),
+            }
+            for quote in quotes.values()
+        ],
+    }
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
+def cmd_paper_trade_review(
+    *,
+    config_path: Path,
+    max_recent_closed: int,
+) -> int:
+    config = load_strategy_config(config_path)
+    ledger_store = _build_trade_ledger_store(config)
+    if ledger_store is None:
+        raise ValueError("Strategy config does not include a paper-trade ledger path.")
+    print(
+        json.dumps(
+            ledger_store.review(max_recent_closed=max_recent_closed),
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -389,6 +528,7 @@ def _run_cycle(
     config: StrategyConfig,
     *,
     client: FredClient,
+    market_data_client: TwelveDataClient | None,
     sinks: list[object],
     calendar: ReleaseCalendar | None = None,
 ) -> None:
@@ -403,13 +543,26 @@ def _run_cycle(
     if snapshot_store:
         snapshot_store.append_run(as_of=as_of, results=results)
     playbook_items_by_symbol: dict[str, object] = {}
+    reference_prices: dict[str, float] = {}
     if config.day_trading is not None:
+        if market_data_client is not None:
+            try:
+                reference_prices = {
+                    symbol: quote.price
+                    for symbol, quote in _fetch_live_prices(
+                        config,
+                        market_data_client=market_data_client,
+                    ).items()
+                }
+            except MarketDataRequestError as exc:
+                print(f"Live market price lookup failed: {exc}", file=sys.stderr)
         playbook = generate_day_trade_playbook(
             config=config,
             calendar=calendar or ReleaseCalendar(events=()),
             results=results,
             trade_date=as_of.astimezone(UTC).date(),
             as_of=as_of,
+            reference_prices=reference_prices or None,
         )
         journal_store = _build_trade_journal_store(config)
         if journal_store:
@@ -417,6 +570,17 @@ def _run_cycle(
                 strategy_metadata=config.metadata,
                 playbook=playbook,
             )
+        trade_ledger_store = _build_trade_ledger_store(config)
+        if trade_ledger_store and reference_prices:
+            for event_payload in trade_ledger_store.sync_playbook(
+                strategy_metadata=config.metadata,
+                playbook=playbook,
+                reference_prices=reference_prices,
+                as_of=as_of,
+            ):
+                print(json.dumps(event_payload, indent=2))
+                for sink in sinks:
+                    sink.emit(event_payload)
         playbook_items_by_symbol = {
             item.symbol: item
             for item in playbook.items
@@ -521,6 +685,47 @@ def _build_trade_journal_store(config: StrategyConfig) -> PaperTradeJournalStore
     if not config.research.journal_path:
         return None
     return PaperTradeJournalStore(Path(config.research.journal_path))
+
+
+def _build_trade_ledger_store(config: StrategyConfig) -> PaperTradeLedgerStore | None:
+    if not config.research.trade_log_path:
+        return None
+    return PaperTradeLedgerStore(Path(config.research.trade_log_path))
+
+
+def _build_market_data_client(
+    *,
+    api_key_env: str = "TWELVEDATA_API_KEY",
+    required: bool,
+) -> TwelveDataClient | None:
+    api_key = os.environ.get(api_key_env, "").strip()
+    if api_key:
+        return TwelveDataClient(api_key)
+    if required:
+        raise ValueError(
+            f"Live market data requires env var {api_key_env!r} to be set."
+        )
+    return None
+
+
+def _fetch_live_prices(
+    config: StrategyConfig,
+    *,
+    market_data_client: TwelveDataClient,
+    symbols: list[str] | None = None,
+) -> dict[str, MarketPriceQuote]:
+    requested_symbols = symbols or [instrument.symbol for instrument in config.instruments]
+    quotes, errors_by_symbol = market_data_client.get_prices_best_effort(requested_symbols)
+    for symbol, error_text in sorted(errors_by_symbol.items()):
+        print(
+            f"Live market price lookup skipped {symbol}: {error_text}",
+            file=sys.stderr,
+        )
+    if not quotes and errors_by_symbol:
+        raise MarketDataRequestError(
+            "Live market price lookup failed for every requested symbol."
+        )
+    return quotes
 
 
 def _parse_trade_date(trade_date_text: str, *, as_of: datetime) -> date:

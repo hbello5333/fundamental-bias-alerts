@@ -111,8 +111,9 @@ class AlertingConfig:
 
 @dataclass(frozen=True)
 class ResearchConfig:
-    snapshot_path: str | None
-    journal_path: str | None
+    snapshot_path: str | None = None
+    journal_path: str | None = None
+    trade_log_path: str | None = None
 
 
 @dataclass(frozen=True)

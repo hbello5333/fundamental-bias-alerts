@@ -24,7 +24,9 @@ The goal is to build a researchable, auditable alert engine. It is not safe or h
 - Generates a day-trading playbook with allowed direction, valid sessions, and no-trade windows around scheduled macro events.
 - Ranks the top tradable setups so you can focus on the best 1 to 2 ideas instead of forcing trades across all 7 instruments.
 - Appends each hourly day-trade signal to a paper-trade journal for later review.
-- Turns a playbook into an exact paper-trade ticket when you supply reference prices and account size.
+- Turns a playbook into an exact paper-trade ticket when you supply reference prices and account size, or when live prices are available.
+- Fetches live market prices from Twelve Data for `XAUUSD`, major FX pairs, and `BTCUSD`.
+- Auto-opens and auto-closes paper trades for top setups, then logs `entry`, `stop`, `target`, `exit`, `R-multiple`, and win/loss outcomes.
 - Includes a Render-ready background worker blueprint for 24/7 cloud deployment.
 
 ## Why FRED / ALFRED
@@ -60,6 +62,7 @@ PowerShell example:
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 $env:FRED_API_KEY="your_key_here"
+$env:TWELVEDATA_API_KEY="your_key_here"
 python -m fundamental_bias_alerts.cli run --config configs/locked.json
 ```
 
@@ -68,6 +71,8 @@ You can also create a local `.env` file and the CLI will load it automatically i
 Each run appends research snapshots to `data/bias_snapshots.jsonl` by default.
 
 If day-trading config is enabled, each run also appends signal-journal entries to `data/paper_trade_journal.jsonl` by default.
+
+If live prices are available, each run also appends paper-trade lifecycle entries to `data/paper_trade_ledger.jsonl` by default.
 
 Hourly loop:
 
@@ -99,6 +104,24 @@ Exact paper-trade ticket:
 python -m fundamental_bias_alerts.cli day-trade-playbook --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json --trade-date 2026-04-17 --reference-price EURUSD=1.0825 --reference-price XAUUSD=3320.50 --account-size 10000 --brief
 ```
 
+Exact paper-trade ticket from live prices:
+
+```powershell
+python -m fundamental_bias_alerts.cli day-trade-playbook --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json --trade-date 2026-04-17 --live-prices --account-size 10000 --brief
+```
+
+Live prices snapshot:
+
+```powershell
+python -m fundamental_bias_alerts.cli live-prices --config configs/locked.json
+```
+
+Paper-trade performance review:
+
+```powershell
+python -m fundamental_bias_alerts.cli paper-trade-review --config configs/locked.json
+```
+
 This command combines:
 
 - the latest live macro bias from FRED
@@ -127,6 +150,12 @@ The output includes:
 - `waiting_for_session`: the bias is tradable, but you should wait for the next valid session window.
 - `needs_price`: the setup is tradable, but you did not provide a reference price for exact levels.
 - `blocked`: the setup is not tradable because it is neutral, stale, low-confidence, locked out, or out of session for the trade date.
+
+Live price feed note:
+
+- Exact tickets and automated paper-trade outcome logging use Twelve Data live prices: https://twelvedata.com/docs
+- The `/price` endpoint is the latest-price endpoint, and intraday time series support is documented in the same official docs.
+- Twelve Data's pricing page currently lists real-time forex and crypto on the free Basic plan, while commodities market data such as `XAU/USD` are listed under Grow or above, so confirm your current plan before relying on full top-7 coverage: https://twelvedata.com/pricing
 
 Webhook alerts:
 
@@ -189,7 +218,7 @@ powershell -ExecutionPolicy Bypass -File scripts\\validate-paper-study.ps1 -Pric
 `register-hourly-task.ps1` creates an hourly Windows Scheduled Task that runs `run-paper-hourly.ps1`. If you pass `-UseTelegram`, it adds Telegram delivery using `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` from your local `.env`.
 
 The hourly task still respects the alert state rules: it runs every hour, but Telegram messages are only sent when the bias changes enough to emit an alert.
-It also writes a paper-trade signal journal so you can review what the system would have wanted to trade even when you skip execution.
+It also writes a paper-trade signal journal and a paper-trade ledger so you can review what the system wanted to trade and how each automated paper trade finished.
 
 Render deployment:
 
@@ -202,9 +231,9 @@ GitHub Actions deployment:
 
 - `.github/workflows/hourly-bias-alerts.yml` provides a no-laptop fallback for hourly Telegram delivery.
 - It runs a single `run` cycle every hour at minute `17` UTC to avoid the top-of-hour GitHub Actions traffic spike.
-- It persists `storage/.state/alert_state.json` and `storage/.state/paper_trade_journal.jsonl` on a dedicated `runtime-state` branch.
+- It persists `storage/.state/alert_state.json`, `storage/.state/paper_trade_journal.jsonl`, and `storage/.state/paper_trade_ledger.jsonl` on a dedicated `runtime-state` branch.
 - It keeps `FBA_SNAPSHOT_PATH` ephemeral inside the GitHub runner to avoid committing hourly research data into the repository.
-- Store `FRED_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` as repository secrets before using it.
+- Store `FRED_API_KEY`, `TWELVEDATA_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` as repository secrets before using it if you want live-price-driven tickets and automated paper-trade outcomes in the cloud.
 - GitHub scheduled workflows run from the latest commit on the default branch and public-repo schedules are auto-disabled after 60 days without repository activity.
 
 Validation report highlights:
@@ -220,15 +249,19 @@ Validation report highlights:
 - `python -m fundamental_bias_alerts.cli lock-series --config configs/default.json --output configs/locked.json`
   Resolves unresolved series into a locked config file using the top search match.
 - `python -m fundamental_bias_alerts.cli run --config configs/locked.json`
-  Runs one scoring pass, prints the current payload for each instrument, and appends snapshots to `data/bias_snapshots.jsonl`. Add `--calendar configs/release_calendar.usd_q2_2026.json` to enrich the output with day-trade ranking and journal entries.
+  Runs one scoring pass, prints the current payload for each instrument, and appends snapshots to `data/bias_snapshots.jsonl`. Add `--calendar configs/release_calendar.usd_q2_2026.json` to enrich the output with day-trade ranking, journal entries, and automated paper-trade lifecycle logging when `TWELVEDATA_API_KEY` is set.
 - `python -m fundamental_bias_alerts.cli loop --config configs/locked.json --interval-minutes 60`
-  Runs continuously on a timer. Add `--calendar configs/release_calendar.usd_q2_2026.json` if you want no-trade windows, top setups, and paper-trade signal journaling.
+  Runs continuously on a timer. Add `--calendar configs/release_calendar.usd_q2_2026.json` if you want no-trade windows, top setups, paper-trade signal journaling, and automated paper-trade opens/closes from live prices.
 - `python -m fundamental_bias_alerts.cli telegram-chat-id`
   Prints recent Telegram chats seen by your bot so you can choose a chat ID.
 - `python -m fundamental_bias_alerts.cli telegram-test`
   Sends a Telegram test message using `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
 - `python -m fundamental_bias_alerts.cli day-trade-playbook --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json`
-  Produces a session-aware day-trading playbook from live macro bias and a scheduled release calendar. Add `--brief` for a trader-readable summary with action, why, sessions, lockouts, and execution-plan notes. Add repeated `--reference-price SYMBOL=PRICE` plus `--account-size` for exact paper-trade levels.
+  Produces a session-aware day-trading playbook from live macro bias and a scheduled release calendar. Add `--brief` for a trader-readable summary with action, why, sessions, lockouts, and execution-plan notes. Add repeated `--reference-price SYMBOL=PRICE` plus `--account-size` for exact paper-trade levels, or use `--live-prices` to fetch the prices automatically from Twelve Data.
+- `python -m fundamental_bias_alerts.cli live-prices --config configs/locked.json`
+  Fetches the current live prices for the configured instruments from Twelve Data so you can sanity-check the feed before trading.
+- `python -m fundamental_bias_alerts.cli paper-trade-review --config configs/locked.json`
+  Summarizes closed paper trades with win/loss counts and R-multiple performance by symbol and by session, and shows any currently open paper trades.
 - `python -m fundamental_bias_alerts.cli validate-prices --snapshots data/bias_snapshots.jsonl --prices your_hourly_prices.csv --horizon-hours 1 --horizon-hours 4 --horizon-hours 24 --min-cohort-samples 10 --max-ranked-cohorts 25`
   Measures directional edge using stored bias snapshots and hourly close data, including confidence sweeps and ranked cohorts.
 

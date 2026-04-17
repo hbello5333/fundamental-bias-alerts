@@ -32,7 +32,7 @@ jobs:
       - name: Install project
         run: pip install .
 
-      - name: Restore previous alert state and journal
+      - name: Restore previous alert state, journal, and trade ledger
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -53,16 +53,21 @@ jobs:
             if [ -f .runtime-state/storage/.state/paper_trade_journal.jsonl ]; then
               cp .runtime-state/storage/.state/paper_trade_journal.jsonl storage/.state/paper_trade_journal.jsonl
             fi
+            if [ -f .runtime-state/storage/.state/paper_trade_ledger.jsonl ]; then
+              cp .runtime-state/storage/.state/paper_trade_ledger.jsonl storage/.state/paper_trade_ledger.jsonl
+            fi
           fi
 
       - name: Run hourly bias cycle
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FBA_STATE_PATH: storage/.state/alert_state.json
           FBA_SNAPSHOT_PATH: ${{ runner.temp }}/bias_snapshots.jsonl
           FBA_JOURNAL_PATH: storage/.state/paper_trade_journal.jsonl
+          FBA_TRADE_LOG_PATH: storage/.state/paper_trade_ledger.jsonl
         run: |
           python -m fundamental_bias_alerts.cli run \
             --config configs/locked.json \
@@ -70,7 +75,7 @@ jobs:
             --telegram-token-env TELEGRAM_BOT_TOKEN \
             --telegram-chat-id-env TELEGRAM_CHAT_ID
 
-      - name: Persist alert state and journal
+      - name: Persist alert state, journal, and trade ledger
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -87,6 +92,9 @@ jobs:
           cp storage/.state/alert_state.json .runtime-state/storage/.state/alert_state.json
           if [ -f storage/.state/paper_trade_journal.jsonl ]; then
             cp storage/.state/paper_trade_journal.jsonl .runtime-state/storage/.state/paper_trade_journal.jsonl
+          fi
+          if [ -f storage/.state/paper_trade_ledger.jsonl ]; then
+            cp storage/.state/paper_trade_ledger.jsonl .runtime-state/storage/.state/paper_trade_ledger.jsonl
           fi
 
           if [ ! -d .runtime-state/.git ]; then
@@ -108,10 +116,14 @@ jobs:
               '!storage/' \
               '!storage/.state/' \
               '!storage/.state/alert_state.json' \
-              '!storage/.state/paper_trade_journal.jsonl' > .gitignore
+              '!storage/.state/paper_trade_journal.jsonl' \
+              '!storage/.state/paper_trade_ledger.jsonl' > .gitignore
             files_to_add=(.gitignore storage/.state/alert_state.json)
             if [ -f storage/.state/paper_trade_journal.jsonl ]; then
               files_to_add+=(storage/.state/paper_trade_journal.jsonl)
+            fi
+            if [ -f storage/.state/paper_trade_ledger.jsonl ]; then
+              files_to_add+=(storage/.state/paper_trade_ledger.jsonl)
             fi
             git add "${files_to_add[@]}"
             if git diff --cached --quiet; then
@@ -131,6 +143,6 @@ jobs:
             echo
             echo "- Workflow run completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')."
             echo "- Schedule: minute 17 of every UTC hour."
-            echo "- Alert state and paper-trade journal are persisted on the \`runtime-state\` branch."
+            echo "- Alert state, paper-trade journal, and paper-trade ledger are persisted on the \`runtime-state\` branch."
             echo "- Research snapshots are ephemeral in GitHub Actions to keep the repo clean."
           } >> "$GITHUB_STEP_SUMMARY"

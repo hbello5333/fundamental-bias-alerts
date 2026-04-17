@@ -15,12 +15,15 @@ class ConfigOverridesTests(unittest.TestCase):
         previous_state = os.environ.get("FBA_STATE_PATH")
         previous_snapshot = os.environ.get("FBA_SNAPSHOT_PATH")
         previous_journal = os.environ.get("FBA_JOURNAL_PATH")
+        previous_trade_log = os.environ.get("FBA_TRADE_LOG_PATH")
         self.addCleanup(self._restore_env, "FBA_STATE_PATH", previous_state)
         self.addCleanup(self._restore_env, "FBA_SNAPSHOT_PATH", previous_snapshot)
         self.addCleanup(self._restore_env, "FBA_JOURNAL_PATH", previous_journal)
+        self.addCleanup(self._restore_env, "FBA_TRADE_LOG_PATH", previous_trade_log)
         os.environ["FBA_STATE_PATH"] = "storage/.state/cloud_alert_state.json"
         os.environ["FBA_SNAPSHOT_PATH"] = "storage/data/cloud_bias_snapshots.jsonl"
         os.environ["FBA_JOURNAL_PATH"] = "storage/data/cloud_paper_trade_journal.jsonl"
+        os.environ["FBA_TRADE_LOG_PATH"] = "storage/data/cloud_paper_trade_ledger.jsonl"
 
         config = load_strategy_config(config_path)
 
@@ -29,6 +32,10 @@ class ConfigOverridesTests(unittest.TestCase):
         self.assertEqual(
             config.research.journal_path,
             "storage/data/cloud_paper_trade_journal.jsonl",
+        )
+        self.assertEqual(
+            config.research.trade_log_path,
+            "storage/data/cloud_paper_trade_ledger.jsonl",
         )
 
     def _write_config(self) -> Path:
@@ -48,6 +55,7 @@ class ConfigOverridesTests(unittest.TestCase):
                     "research": {
                         "snapshot_path": "data/bias_snapshots.jsonl",
                         "journal_path": "data/paper_trade_journal.jsonl",
+                        "trade_log_path": "data/paper_trade_ledger.jsonl",
                     },
                     "day_trading": {
                         "min_confidence": 0.7,

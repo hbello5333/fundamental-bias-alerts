@@ -16,6 +16,7 @@ from fundamental_bias_alerts.cli import (
     _parse_reference_prices,
     _run_cycle,
 )
+from fundamental_bias_alerts.market_data import MarketPriceQuote
 from fundamental_bias_alerts.models import (
     AlertingConfig,
     DayTradingConfig,
@@ -37,6 +38,32 @@ class FakeFredClient:
 
     def get_observations(self, spec: SeriesSpec, *, limit: int = 2) -> list[Observation]:
         return self.observations[spec.cache_key][:limit]
+
+
+class FakeMarketDataClient:
+    def __init__(self, prices: dict[str, float]) -> None:
+        self.prices = prices
+
+    def get_price(self, symbol: str) -> MarketPriceQuote:
+        return MarketPriceQuote(
+            symbol=symbol,
+            provider_symbol=f"{symbol[:3]}/{symbol[3:]}",
+            price=self.prices[symbol],
+            as_of_utc=datetime(2026, 4, 17, 8, 0, tzinfo=UTC),
+        )
+
+    def get_prices_best_effort(
+        self,
+        symbols: list[str],
+    ) -> tuple[dict[str, MarketPriceQuote], dict[str, str]]:
+        quotes: dict[str, MarketPriceQuote] = {}
+        errors_by_symbol: dict[str, str] = {}
+        for symbol in symbols:
+            if symbol in self.prices:
+                quotes[symbol] = self.get_price(symbol)
+            else:
+                errors_by_symbol[symbol] = f"{symbol} unavailable"
+        return quotes, errors_by_symbol
 
 
 class CliRunCycleTests(unittest.TestCase):
@@ -123,6 +150,7 @@ class CliRunCycleTests(unittest.TestCase):
                         ],
                     }
                 ),
+                market_data_client=None,
                 sinks=_build_sinks(""),
             )
 
@@ -235,6 +263,7 @@ class CliRunCycleTests(unittest.TestCase):
                         ],
                     }
                 ),
+                market_data_client=None,
                 sinks=[],
                 calendar=ReleaseCalendar(events=()),
             )
@@ -252,6 +281,143 @@ class CliRunCycleTests(unittest.TestCase):
         self.assertEqual(journal_entry["tradable_rank"], 1)
         self.assertTrue(journal_entry["is_top_setup"])
         self.assertEqual(journal_entry["execution_plan"]["status"], "needs_price")
+
+    def test_run_cycle_writes_trade_ledger_and_prints_trade_events_with_live_prices(self) -> None:
+        unique = uuid4().hex
+        state_path = Path(".state") / f"test-alert-state-{unique}.json"
+        trade_log_path = Path(".state") / f"test-trade-ledger-{unique}.jsonl"
+        self.addCleanup(lambda: state_path.unlink(missing_ok=True))
+        self.addCleanup(lambda: trade_log_path.unlink(missing_ok=True))
+
+        usd_series = "DFF"
+        eur_series = "ECBMRRFR"
+        config = StrategyConfig(
+            metadata={"name": "test", "version": "0.7.0"},
+            alerting=AlertingConfig(
+                state_path=str(state_path),
+                emit_on_first_run=True,
+                min_score_change=0.35,
+            ),
+            research=ResearchConfig(
+                snapshot_path=None,
+                journal_path=None,
+                trade_log_path=str(trade_log_path),
+            ),
+            day_trading=DayTradingConfig(
+                min_confidence=0.7,
+                max_stale_drivers=1,
+                max_ranked_setups=2,
+                sessions=(
+                    SessionSpec(
+                        key="all_day",
+                        label="All Day",
+                        timezone="UTC",
+                        start_time="00:00",
+                        end_time="23:59",
+                    ),
+                ),
+                instrument_sessions={"EURUSD": ("all_day",)},
+                event_policies=(),
+                risk_per_trade_pct=0.25,
+                target_r_multiple=2.0,
+                default_stop_loss_pct=0.003,
+                stop_loss_pct_by_symbol={},
+            ),
+            entities={
+                "USD": EntitySpec(
+                    key="USD",
+                    label="US Dollar",
+                    drivers=(
+                        DriverSpec(
+                            key="policy_rate",
+                            label="Fed policy rate",
+                            weight=0.4,
+                            mode="level",
+                            bullish_when="higher",
+                            neutral_value=2.0,
+                            scale=2.0,
+                            stale_after_hours=24 * 365 * 100,
+                            series=SeriesSpec(series_id=usd_series),
+                        ),
+                    ),
+                ),
+                "EUR": EntitySpec(
+                    key="EUR",
+                    label="Euro",
+                    drivers=(
+                        DriverSpec(
+                            key="policy_rate",
+                            label="ECB policy rate",
+                            weight=0.4,
+                            mode="level",
+                            bullish_when="higher",
+                            neutral_value=2.0,
+                            scale=2.0,
+                            stale_after_hours=24 * 365 * 100,
+                            series=SeriesSpec(series_id=eur_series),
+                        ),
+                    ),
+                ),
+            },
+            instruments=(
+                InstrumentSpec(
+                    symbol="EURUSD",
+                    base_entity="EUR",
+                    quote_entity="USD",
+                    threshold=0.3,
+                ),
+            ),
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            _run_cycle(
+                config,
+                client=FakeFredClient(
+                    {
+                        usd_series: [
+                            Observation(date="2026-04-15", value=4.0),
+                            Observation(date="2026-04-14", value=4.0),
+                        ],
+                        eur_series: [
+                            Observation(date="2026-04-15", value=2.0),
+                            Observation(date="2026-04-14", value=2.0),
+                        ],
+                    }
+                ),
+                market_data_client=FakeMarketDataClient({"EURUSD": 1.1}),
+                sinks=[],
+                calendar=ReleaseCalendar(events=()),
+            )
+            _run_cycle(
+                config,
+                client=FakeFredClient(
+                    {
+                        usd_series: [
+                            Observation(date="2026-04-15", value=4.0),
+                            Observation(date="2026-04-14", value=4.0),
+                        ],
+                        eur_series: [
+                            Observation(date="2026-04-15", value=2.0),
+                            Observation(date="2026-04-14", value=2.0),
+                        ],
+                    }
+                ),
+                market_data_client=FakeMarketDataClient({"EURUSD": 1.0933}),
+                sinks=[],
+                calendar=ReleaseCalendar(events=()),
+            )
+
+        rendered = stdout.getvalue()
+        self.assertIn('"entry_type": "paper_trade_open"', rendered)
+        self.assertIn('"entry_type": "paper_trade_close"', rendered)
+
+        trade_lines = trade_log_path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(trade_lines), 2)
+        latest_trade = json.loads(trade_lines[-1])
+        self.assertEqual(latest_trade["status"], "closed")
+        self.assertEqual(latest_trade["exit_reason"], "target_hit")
+        self.assertAlmostEqual(latest_trade["r_multiple"], 2.0, places=6)
 
     def test_parse_reference_prices_reads_symbol_price_pairs(self) -> None:
         prices = _parse_reference_prices(["eurusd=1.0825", "XAUUSD=3300.5"])
