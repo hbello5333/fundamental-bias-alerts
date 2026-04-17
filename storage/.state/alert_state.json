@@ -1,0 +1,37 @@
+{
+  "XAUUSD": {
+    "direction": "bearish",
+    "score": -0.5120250000000001,
+    "confidence": 0.875
+  },
+  "EURUSD": {
+    "direction": "neutral",
+    "score": -0.2355000000000001,
+    "confidence": 0.7
+  },
+  "GBPUSD": {
+    "direction": "neutral",
+    "score": 0.10007838709677763,
+    "confidence": 1.0
+  },
+  "USDJPY": {
+    "direction": "neutral",
+    "score": 0.1409666666666667,
+    "confidence": 0.825
+  },
+  "USDCAD": {
+    "direction": "neutral",
+    "score": 0.2727303000000001,
+    "confidence": 0.875
+  },
+  "BTCUSD": {
+    "direction": "bearish",
+    "score": -0.41955000000000003,
+    "confidence": 0.775
+  },
+  "AUDUSD": {
+    "direction": "neutral",
+    "score": 0.20082999999999995,
+    "confidence": 0.825
+  }
+}

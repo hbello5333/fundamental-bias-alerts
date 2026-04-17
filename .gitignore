@@ -1,0 +1,5 @@
+*
+!.gitignore
+!storage/
+!storage/.state/
+!storage/.state/alert_state.json
