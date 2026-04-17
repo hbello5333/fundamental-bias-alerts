@@ -172,6 +172,15 @@ Render deployment:
 - The worker start command uses `--align-to-clock` so hourly runs stay aligned to UTC hour boundaries instead of drifting from deploy time.
 - See [docs/deploy.render.md](docs/deploy.render.md) for the deployment checklist.
 
+GitHub Actions deployment:
+
+- `.github/workflows/hourly-bias-alerts.yml` provides a no-laptop fallback for hourly Telegram delivery.
+- It runs a single `run` cycle every hour at minute `17` UTC to avoid the top-of-hour GitHub Actions traffic spike.
+- It persists only `storage/.state/alert_state.json` on a dedicated `runtime-state` branch so duplicate alerts stay suppressed across runs.
+- It keeps `FBA_SNAPSHOT_PATH` ephemeral inside the GitHub runner to avoid committing hourly research data into the repository.
+- Store `FRED_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` as repository secrets before using it.
+- GitHub scheduled workflows run from the latest commit on the default branch and public-repo schedules are auto-disabled after 60 days without repository activity.
+
 Validation report highlights:
 
 - `confidence_sweep` compares results at progressively stricter minimum-confidence cutoffs derived from `--confidence-buckets`

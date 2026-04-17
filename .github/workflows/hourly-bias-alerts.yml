@@ -1,0 +1,124 @@
+name: Hourly Bias Alerts
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hourly-bias-alerts
+  cancel-in-progress: false
+
+jobs:
+  run-alerts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install project
+        run: pip install .
+
+      - name: Restore previous alert state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p storage/.state
+
+          if git ls-remote --exit-code origin refs/heads/runtime-state >/dev/null 2>&1; then
+            git clone \
+              --depth 1 \
+              --branch runtime-state \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              .runtime-state
+
+            if [ -f .runtime-state/storage/.state/alert_state.json ]; then
+              cp .runtime-state/storage/.state/alert_state.json storage/.state/alert_state.json
+            fi
+          fi
+
+      - name: Run hourly bias cycle
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FBA_STATE_PATH: storage/.state/alert_state.json
+          FBA_SNAPSHOT_PATH: ${{ runner.temp }}/bias_snapshots.jsonl
+        run: |
+          python -m fundamental_bias_alerts.cli run \
+            --config configs/locked.json \
+            --telegram-token-env TELEGRAM_BOT_TOKEN \
+            --telegram-chat-id-env TELEGRAM_CHAT_ID
+
+      - name: Persist alert state
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ ! -f storage/.state/alert_state.json ]; then
+            echo "Expected alert state file was not created." >&2
+            exit 1
+          fi
+
+          mkdir -p .runtime-state/storage/.state
+          cp storage/.state/alert_state.json .runtime-state/storage/.state/alert_state.json
+
+          if [ ! -d .runtime-state/.git ]; then
+            (
+              cd .runtime-state
+              git init
+              git checkout --orphan runtime-state
+              git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            )
+          fi
+
+          (
+            cd .runtime-state
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            cat > .gitignore <<'EOF'
+            *
+            !.gitignore
+            !storage/
+            !storage/.state/
+            !storage/.state/alert_state.json
+            EOF
+            git add .gitignore storage/.state/alert_state.json
+            if git diff --cached --quiet; then
+              echo "Alert state unchanged."
+              exit 0
+            fi
+            git commit -m "chore: update hourly alert state"
+            git push origin HEAD:runtime-state
+          )
+
+      - name: Summarize run
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Hourly Bias Alerts"
+            echo
+            echo "- Workflow run completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')."
+            echo "- Schedule: minute 17 of every UTC hour."
+            echo "- Alert state is persisted on the \`runtime-state\` branch."
+            echo "- Research snapshots are ephemeral in GitHub Actions to keep the repo clean."
+          } >> "$GITHUB_STEP_SUMMARY"
