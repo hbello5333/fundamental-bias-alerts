@@ -3,3 +3,4 @@
 !storage/
 !storage/.state/
 !storage/.state/alert_state.json
+!storage/.state/paper_trade_journal.jsonl
