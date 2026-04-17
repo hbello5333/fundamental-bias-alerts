@@ -18,7 +18,8 @@ from .alerts import (
 from .config import iter_series_specs, load_raw_config, load_strategy_config
 from .engine import score_instrument
 from .fred import FredClient, FredRequestError
-from .models import SeriesSpec, StrategyConfig
+from .journal import PaperTradeJournalStore
+from .models import ReleaseCalendar, SeriesSpec, StrategyConfig
 from .playbook import (
     format_day_trade_playbook_brief,
     format_day_trade_playbook_payload,
@@ -43,12 +44,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = subparsers.add_parser("run", help="Run one scoring cycle")
     run.add_argument("--config", required=True)
+    run.add_argument("--calendar", default="")
     run.add_argument("--webhook-env", default="")
     run.add_argument("--telegram-token-env", default="")
     run.add_argument("--telegram-chat-id-env", default="")
 
     loop = subparsers.add_parser("loop", help="Run scoring on a fixed interval")
     loop.add_argument("--config", required=True)
+    loop.add_argument("--calendar", default="")
     loop.add_argument("--interval-minutes", type=int, default=60)
     loop.add_argument("--webhook-env", default="")
     loop.add_argument("--telegram-token-env", default="")
@@ -140,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             return cmd_run(
                 Path(args.config),
+                calendar_path_text=args.calendar,
                 webhook_env=args.webhook_env,
                 telegram_token_env=args.telegram_token_env,
                 telegram_chat_id_env=args.telegram_chat_id_env,
@@ -147,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "loop":
             return cmd_loop(
                 Path(args.config),
+                calendar_path_text=args.calendar,
                 interval_minutes=args.interval_minutes,
                 webhook_env=args.webhook_env,
                 telegram_token_env=args.telegram_token_env,
@@ -231,24 +236,27 @@ def cmd_lock_series(config_path: Path, output_path: Path) -> int:
 def cmd_run(
     config_path: Path,
     *,
+    calendar_path_text: str,
     webhook_env: str,
     telegram_token_env: str,
     telegram_chat_id_env: str,
 ) -> int:
     config = load_strategy_config(config_path)
     client = _build_client()
+    calendar = _load_optional_calendar(calendar_path_text)
     sinks = _build_sinks(
         webhook_env=webhook_env,
         telegram_token_env=telegram_token_env,
         telegram_chat_id_env=telegram_chat_id_env,
     )
-    _run_cycle(config, client=client, sinks=sinks)
+    _run_cycle(config, client=client, sinks=sinks, calendar=calendar)
     return 0
 
 
 def cmd_loop(
     config_path: Path,
     *,
+    calendar_path_text: str,
     interval_minutes: int,
     webhook_env: str,
     telegram_token_env: str,
@@ -264,7 +272,12 @@ def cmd_loop(
     )
 
     while True:
-        _run_cycle(config, client=client, sinks=sinks)
+        _run_cycle(
+            config,
+            client=client,
+            sinks=sinks,
+            calendar=_load_optional_calendar(calendar_path_text),
+        )
         if align_to_clock:
             current_time = datetime.now(tz=UTC)
             next_run_at = _next_interval_boundary(
@@ -343,7 +356,13 @@ def cmd_telegram_test(*, token_env: str, chat_id_env: str, message: str) -> int:
     return 0
 
 
-def _run_cycle(config: StrategyConfig, *, client: FredClient, sinks: list[object]) -> None:
+def _run_cycle(
+    config: StrategyConfig,
+    *,
+    client: FredClient,
+    sinks: list[object],
+    calendar: ReleaseCalendar | None = None,
+) -> None:
     as_of = datetime.now(tz=UTC)
     store = AlertStateStore(
         Path(config.alerting.state_path),
@@ -354,9 +373,31 @@ def _run_cycle(config: StrategyConfig, *, client: FredClient, sinks: list[object
     snapshot_store = _build_snapshot_store(config)
     if snapshot_store:
         snapshot_store.append_run(as_of=as_of, results=results)
+    playbook_items_by_symbol: dict[str, object] = {}
+    if config.day_trading is not None:
+        playbook = generate_day_trade_playbook(
+            config=config,
+            calendar=calendar or ReleaseCalendar(events=()),
+            results=results,
+            trade_date=as_of.astimezone(UTC).date(),
+            as_of=as_of,
+        )
+        journal_store = _build_trade_journal_store(config)
+        if journal_store:
+            journal_store.append_run(
+                strategy_metadata=config.metadata,
+                playbook=playbook,
+            )
+        playbook_items_by_symbol = {
+            item.symbol: item
+            for item in playbook.items
+        }
 
     for result in results:
-        payload = format_alert_payload(result)
+        payload = format_alert_payload(
+            result,
+            playbook_item=playbook_items_by_symbol.get(result.symbol),
+        )
         print(json.dumps(payload, indent=2))
 
         decision = AlertDecision(
@@ -447,6 +488,12 @@ def _build_snapshot_store(config: StrategyConfig) -> SnapshotStore | None:
     return SnapshotStore(Path(config.research.snapshot_path))
 
 
+def _build_trade_journal_store(config: StrategyConfig) -> PaperTradeJournalStore | None:
+    if not config.research.journal_path:
+        return None
+    return PaperTradeJournalStore(Path(config.research.journal_path))
+
+
 def _parse_trade_date(trade_date_text: str, *, as_of: datetime) -> date:
     if not trade_date_text:
         return as_of.astimezone(UTC).date()
@@ -470,6 +517,12 @@ def _required_env(name: str, *, description: str) -> str:
     if value:
         return value
     raise ValueError(f"{description} env var {name!r} is not set.")
+
+
+def _load_optional_calendar(path_text: str) -> ReleaseCalendar | None:
+    if not path_text:
+        return None
+    return load_release_calendar(path_text)
 
 
 if __name__ == "__main__":

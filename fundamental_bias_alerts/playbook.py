@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -47,11 +48,15 @@ def generate_day_trade_playbook(
         )
         for result in results
     )
+    ranked_items = _apply_tradable_ranks(
+        items,
+        max_ranked_setups=config.day_trading.max_ranked_setups,
+    )
 
     return DayTradePlaybook(
         generated_at_utc=as_of_utc,
         trade_date_utc=trade_date,
-        items=items,
+        items=ranked_items,
     )
 
 
@@ -59,6 +64,7 @@ def format_day_trade_playbook_payload(playbook: DayTradePlaybook) -> dict[str, A
     return {
         "generated_at_utc": playbook.generated_at_utc.astimezone(UTC).isoformat(),
         "trade_date_utc": playbook.trade_date_utc.isoformat(),
+        "top_setups": [_top_setup_payload(item) for item in _top_setup_items(playbook)],
         "instruments": [_playbook_item_payload(item) for item in playbook.items],
     }
 
@@ -71,6 +77,17 @@ def format_day_trade_playbook_brief(playbook: DayTradePlaybook) -> str:
             f"trade date {playbook.trade_date_utc.isoformat()}"
         )
     ]
+    top_setups = _top_setup_items(playbook)
+    if top_setups:
+        lines.append(
+            "Top setups: "
+            + "; ".join(
+                f"#{item.tradable_rank} {item.symbol} {_action_label(item)}"
+                for item in top_setups
+            )
+        )
+    else:
+        lines.append("Top setups: None")
 
     for item in playbook.items:
         lines.extend(
@@ -156,6 +173,8 @@ def _build_playbook_item(
     return DayTradeInstrumentPlaybook(
         symbol=result.symbol,
         bias=result.direction,
+        score=result.score,
+        bias_strength=abs(result.score),
         allowed_direction=allowed_direction,
         trade_state=trade_state,
         confidence=result.confidence,
@@ -164,6 +183,42 @@ def _build_playbook_item(
         no_trade_windows=no_trade_windows,
         bias_reasons=result.reasons,
         notes=tuple(notes),
+    )
+
+
+def _apply_tradable_ranks(
+    items: tuple[DayTradeInstrumentPlaybook, ...],
+    *,
+    max_ranked_setups: int,
+) -> tuple[DayTradeInstrumentPlaybook, ...]:
+    ready_items = sorted(
+        (
+            item
+            for item in items
+            if item.trade_state == "ready" and item.allowed_direction != "no_trade"
+        ),
+        key=lambda item: (
+            -item.confidence,
+            -item.bias_strength,
+            item.stale_driver_count,
+            item.symbol,
+        ),
+    )
+    ranks_by_symbol = {
+        item.symbol: index
+        for index, item in enumerate(ready_items, start=1)
+    }
+    ranked_limit = max(0, max_ranked_setups)
+    return tuple(
+        replace(
+            item,
+            tradable_rank=ranks_by_symbol.get(item.symbol),
+            is_top_setup=(
+                ranks_by_symbol.get(item.symbol) is not None
+                and ranks_by_symbol[item.symbol] <= ranked_limit
+            ),
+        )
+        for item in items
     )
 
 
@@ -253,11 +308,15 @@ def _playbook_item_payload(item: DayTradeInstrumentPlaybook) -> dict[str, Any]:
     return {
         "symbol": item.symbol,
         "bias": item.bias,
+        "score": round(item.score, 6),
+        "bias_strength": round(item.bias_strength, 6),
         "action": _action_value(item),
         "allowed_direction": item.allowed_direction,
         "trade_state": item.trade_state,
         "confidence": round(item.confidence, 6),
         "stale_driver_count": item.stale_driver_count,
+        "tradable_rank": item.tradable_rank,
+        "is_top_setup": item.is_top_setup,
         "valid_sessions": [
             {
                 "key": session.key,
@@ -282,6 +341,24 @@ def _playbook_item_payload(item: DayTradeInstrumentPlaybook) -> dict[str, Any]:
         ],
         "bias_reasons": list(item.bias_reasons),
         "notes": list(item.notes),
+    }
+
+
+def _top_setup_items(playbook: DayTradePlaybook) -> list[DayTradeInstrumentPlaybook]:
+    return sorted(
+        (item for item in playbook.items if item.is_top_setup and item.tradable_rank is not None),
+        key=lambda item: item.tradable_rank or 0,
+    )
+
+
+def _top_setup_payload(item: DayTradeInstrumentPlaybook) -> dict[str, Any]:
+    return {
+        "symbol": item.symbol,
+        "tradable_rank": item.tradable_rank,
+        "action": _action_value(item),
+        "confidence": round(item.confidence, 6),
+        "score": round(item.score, 6),
+        "bias_strength": round(item.bias_strength, 6),
     }
 
 
@@ -315,6 +392,8 @@ def _trade_state_label(item: DayTradeInstrumentPlaybook) -> str:
 def _brief_headline(item: DayTradeInstrumentPlaybook) -> str:
     action_label = _action_label(item)
     state_label = _trade_state_label(item)
+    if item.is_top_setup and item.tradable_rank is not None:
+        action_label = f"TOP {item.tradable_rank} {action_label}"
     if action_label == state_label:
         return f"{item.symbol} | {action_label} | confidence {item.confidence:.2f}"
     return f"{item.symbol} | {action_label} | {state_label} | confidence {item.confidence:.2f}"

@@ -47,6 +47,7 @@ def load_strategy_config(path: str | Path) -> StrategyConfig:
 
     state_path_override = os.environ.get("FBA_STATE_PATH", "").strip()
     snapshot_path_override = os.environ.get("FBA_SNAPSHOT_PATH", "").strip()
+    journal_path_override = os.environ.get("FBA_JOURNAL_PATH", "").strip()
 
     alerting = AlertingConfig(
         state_path=state_path_override or raw["alerting"]["state_path"],
@@ -58,8 +59,13 @@ def load_strategy_config(path: str | Path) -> StrategyConfig:
         "snapshot_path",
         "data/bias_snapshots.jsonl",
     )
+    journal_path = journal_path_override or research_raw.get(
+        "journal_path",
+        "data/paper_trade_journal.jsonl",
+    )
     research = ResearchConfig(
         snapshot_path=str(snapshot_path) if snapshot_path else None,
+        journal_path=str(journal_path) if journal_path else None,
     )
     day_trading = _parse_day_trading(raw.get("day_trading"))
 
@@ -137,4 +143,5 @@ def _parse_day_trading(raw_day_trading: dict[str, object] | None) -> DayTradingC
         sessions=sessions,
         instrument_sessions=instrument_sessions,
         event_policies=event_policies,
+        max_ranked_setups=int(raw_day_trading.get("max_ranked_setups", 2)),
     )

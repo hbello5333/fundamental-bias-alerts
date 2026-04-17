@@ -14,15 +14,22 @@ class ConfigOverridesTests(unittest.TestCase):
         config_path = self._write_config()
         previous_state = os.environ.get("FBA_STATE_PATH")
         previous_snapshot = os.environ.get("FBA_SNAPSHOT_PATH")
+        previous_journal = os.environ.get("FBA_JOURNAL_PATH")
         self.addCleanup(self._restore_env, "FBA_STATE_PATH", previous_state)
         self.addCleanup(self._restore_env, "FBA_SNAPSHOT_PATH", previous_snapshot)
+        self.addCleanup(self._restore_env, "FBA_JOURNAL_PATH", previous_journal)
         os.environ["FBA_STATE_PATH"] = "storage/.state/cloud_alert_state.json"
         os.environ["FBA_SNAPSHOT_PATH"] = "storage/data/cloud_bias_snapshots.jsonl"
+        os.environ["FBA_JOURNAL_PATH"] = "storage/data/cloud_paper_trade_journal.jsonl"
 
         config = load_strategy_config(config_path)
 
         self.assertEqual(config.alerting.state_path, "storage/.state/cloud_alert_state.json")
         self.assertEqual(config.research.snapshot_path, "storage/data/cloud_bias_snapshots.jsonl")
+        self.assertEqual(
+            config.research.journal_path,
+            "storage/data/cloud_paper_trade_journal.jsonl",
+        )
 
     def _write_config(self) -> Path:
         directory = Path(".state")
@@ -32,7 +39,7 @@ class ConfigOverridesTests(unittest.TestCase):
         path.write_text(
             json.dumps(
                 {
-                    "metadata": {"name": "test", "version": "0.4.0"},
+                    "metadata": {"name": "test", "version": "0.5.0"},
                     "alerting": {
                         "state_path": ".state/alert_state.json",
                         "emit_on_first_run": True,
@@ -40,6 +47,7 @@ class ConfigOverridesTests(unittest.TestCase):
                     },
                     "research": {
                         "snapshot_path": "data/bias_snapshots.jsonl",
+                        "journal_path": "data/paper_trade_journal.jsonl",
                     },
                     "entities": [],
                     "instruments": [],

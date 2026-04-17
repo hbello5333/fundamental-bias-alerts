@@ -32,7 +32,7 @@ jobs:
       - name: Install project
         run: pip install .
 
-      - name: Restore previous alert state
+      - name: Restore previous alert state and journal
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -50,6 +50,9 @@ jobs:
             if [ -f .runtime-state/storage/.state/alert_state.json ]; then
               cp .runtime-state/storage/.state/alert_state.json storage/.state/alert_state.json
             fi
+            if [ -f .runtime-state/storage/.state/paper_trade_journal.jsonl ]; then
+              cp .runtime-state/storage/.state/paper_trade_journal.jsonl storage/.state/paper_trade_journal.jsonl
+            fi
           fi
 
       - name: Run hourly bias cycle
@@ -59,13 +62,15 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           FBA_STATE_PATH: storage/.state/alert_state.json
           FBA_SNAPSHOT_PATH: ${{ runner.temp }}/bias_snapshots.jsonl
+          FBA_JOURNAL_PATH: storage/.state/paper_trade_journal.jsonl
         run: |
           python -m fundamental_bias_alerts.cli run \
             --config configs/locked.json \
+            --calendar configs/release_calendar.usd_q2_2026.json \
             --telegram-token-env TELEGRAM_BOT_TOKEN \
             --telegram-chat-id-env TELEGRAM_CHAT_ID
 
-      - name: Persist alert state
+      - name: Persist alert state and journal
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,6 +85,9 @@ jobs:
 
           mkdir -p .runtime-state/storage/.state
           cp storage/.state/alert_state.json .runtime-state/storage/.state/alert_state.json
+          if [ -f storage/.state/paper_trade_journal.jsonl ]; then
+            cp storage/.state/paper_trade_journal.jsonl .runtime-state/storage/.state/paper_trade_journal.jsonl
+          fi
 
           if [ ! -d .runtime-state/.git ]; then
             (
@@ -99,13 +107,18 @@ jobs:
               '!.gitignore' \
               '!storage/' \
               '!storage/.state/' \
-              '!storage/.state/alert_state.json' > .gitignore
-            git add .gitignore storage/.state/alert_state.json
+              '!storage/.state/alert_state.json' \
+              '!storage/.state/paper_trade_journal.jsonl' > .gitignore
+            files_to_add=(.gitignore storage/.state/alert_state.json)
+            if [ -f storage/.state/paper_trade_journal.jsonl ]; then
+              files_to_add+=(storage/.state/paper_trade_journal.jsonl)
+            fi
+            git add "${files_to_add[@]}"
             if git diff --cached --quiet; then
               echo "Alert state unchanged."
               exit 0
             fi
-            git commit -m "chore: update hourly alert state"
+            git commit -m "chore: update hourly runtime state"
             git push origin HEAD:runtime-state
           )
 
@@ -118,6 +131,6 @@ jobs:
             echo
             echo "- Workflow run completed at $(date -u '+%Y-%m-%d %H:%M:%S UTC')."
             echo "- Schedule: minute 17 of every UTC hour."
-            echo "- Alert state is persisted on the \`runtime-state\` branch."
+            echo "- Alert state and paper-trade journal are persisted on the \`runtime-state\` branch."
             echo "- Research snapshots are ephemeral in GitHub Actions to keep the repo clean."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -220,28 +220,96 @@ class DayTradePlaybookTests(unittest.TestCase):
         )
 
         payload = format_day_trade_playbook_payload(playbook)
+        self.assertEqual(payload["top_setups"][0]["symbol"], "EURUSD")
         item_payload = payload["instruments"][0]
         self.assertEqual(item_payload["action"], "buy")
         self.assertEqual(item_payload["bias_reasons"], ["ECB policy rate strong", "US CPI soft"])
+        self.assertEqual(item_payload["tradable_rank"], 1)
+        self.assertTrue(item_payload["is_top_setup"])
 
         brief = format_day_trade_playbook_brief(playbook)
-        self.assertIn("EURUSD | BUY ONLY | READY | confidence 0.82", brief)
+        self.assertIn("Top setups: #1 EURUSD BUY ONLY", brief)
+        self.assertIn("EURUSD | TOP 1 BUY ONLY | READY | confidence 0.82", brief)
         self.assertIn("Why: ECB policy rate strong; US CPI soft", brief)
         self.assertIn("Sessions: London", brief)
         self.assertIn("Lockouts: None", brief)
 
+    def test_playbook_ranks_ready_setups_and_keeps_only_top_two_flagged(self) -> None:
+        config = self._strategy_config()
+        results = [
+            InstrumentResult(
+                symbol="EURUSD",
+                score=0.60,
+                confidence=0.86,
+                direction="bullish",
+                threshold=0.3,
+                reasons=("ECB strong",),
+                base_result=EntityResult(key="EUR", label="Euro", score=0.4, confidence=0.9, drivers=()),
+                quote_result=EntityResult(key="USD", label="US Dollar", score=-0.2, confidence=0.8, drivers=()),
+            ),
+            InstrumentResult(
+                symbol="GBPUSD",
+                score=0.45,
+                confidence=0.92,
+                direction="bullish",
+                threshold=0.3,
+                reasons=("BoE strong",),
+                base_result=EntityResult(
+                    key="GBP",
+                    label="British Pound",
+                    score=0.3,
+                    confidence=0.9,
+                    drivers=(),
+                ),
+                quote_result=EntityResult(key="USD", label="US Dollar", score=-0.15, confidence=0.8, drivers=()),
+            ),
+            InstrumentResult(
+                symbol="AUDUSD",
+                score=0.52,
+                confidence=0.75,
+                direction="bullish",
+                threshold=0.3,
+                reasons=("AUD strong",),
+                base_result=EntityResult(
+                    key="AUD",
+                    label="Australian Dollar",
+                    score=0.35,
+                    confidence=0.9,
+                    drivers=(),
+                ),
+                quote_result=EntityResult(key="USD", label="US Dollar", score=-0.17, confidence=0.8, drivers=()),
+            ),
+        ]
+
+        playbook = generate_day_trade_playbook(
+            config=config,
+            calendar=ReleaseCalendar(events=()),
+            results=results,
+            trade_date=date(2026, 4, 30),
+            as_of=datetime(2026, 4, 30, 12, 0, tzinfo=UTC),
+        )
+
+        ranked = {item.symbol: item for item in playbook.items}
+        self.assertEqual(ranked["GBPUSD"].tradable_rank, 1)
+        self.assertTrue(ranked["GBPUSD"].is_top_setup)
+        self.assertEqual(ranked["EURUSD"].tradable_rank, 2)
+        self.assertTrue(ranked["EURUSD"].is_top_setup)
+        self.assertEqual(ranked["AUDUSD"].tradable_rank, 3)
+        self.assertFalse(ranked["AUDUSD"].is_top_setup)
+
     def _strategy_config(self) -> StrategyConfig:
         return StrategyConfig(
-            metadata={"name": "test"},
+            metadata={"name": "test", "version": "0.5.0"},
             alerting=AlertingConfig(
                 state_path=".state/test.json",
                 emit_on_first_run=True,
                 min_score_change=0.35,
             ),
-            research=ResearchConfig(snapshot_path=None),
+            research=ResearchConfig(snapshot_path=None, journal_path=None),
             day_trading=DayTradingConfig(
                 min_confidence=0.7,
                 max_stale_drivers=1,
+                max_ranked_setups=2,
                 sessions=(
                     SessionSpec(
                         key="asia",
@@ -267,6 +335,7 @@ class DayTradePlaybookTests(unittest.TestCase):
                 ),
                 instrument_sessions={
                     "EURUSD": ("london", "new_york"),
+                    "GBPUSD": ("london", "new_york"),
                     "AUDUSD": ("asia", "london", "new_york"),
                 },
                 event_policies=(
@@ -288,11 +357,13 @@ class DayTradePlaybookTests(unittest.TestCase):
             ),
             entities={
                 "EUR": EntitySpec(key="EUR", label="Euro", drivers=()),
+                "GBP": EntitySpec(key="GBP", label="British Pound", drivers=()),
                 "USD": EntitySpec(key="USD", label="US Dollar", drivers=()),
                 "AUD": EntitySpec(key="AUD", label="Australian Dollar", drivers=()),
             },
             instruments=(
                 InstrumentSpec(symbol="EURUSD", base_entity="EUR", quote_entity="USD", threshold=0.3),
+                InstrumentSpec(symbol="GBPUSD", base_entity="GBP", quote_entity="USD", threshold=0.3),
                 InstrumentSpec(symbol="AUDUSD", base_entity="AUD", quote_entity="USD", threshold=0.3),
             ),
         )

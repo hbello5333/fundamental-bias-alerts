@@ -97,6 +97,11 @@ class TelegramAlertSinkTests(unittest.TestCase):
                 "direction": "bullish",
                 "score": 0.5523,
                 "confidence": 0.82,
+                "action": "buy",
+                "trade_state": "ready",
+                "valid_sessions": ["London", "New York"],
+                "tradable_rank": 1,
+                "is_top_setup": True,
                 "base_score": 0.4,
                 "quote_score": -0.15,
                 "reasons": ["ECB policy rate strong", "US CPI soft"],
@@ -105,6 +110,8 @@ class TelegramAlertSinkTests(unittest.TestCase):
 
         self.assertIn("Fundamental Bias Alert", rendered)
         self.assertIn("Symbol: EURUSD", rendered)
+        self.assertIn("Action: buy", rendered)
+        self.assertIn("Setup rank: #1 top setup", rendered)
         self.assertIn("- ECB policy rate strong", rendered)
 
     def test_telegram_alert_sink_posts_message(self) -> None:

@@ -111,6 +111,7 @@ class AlertingConfig:
 @dataclass(frozen=True)
 class ResearchConfig:
     snapshot_path: str | None
+    journal_path: str | None
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,7 @@ class DayTradingConfig:
     sessions: tuple[SessionSpec, ...]
     instrument_sessions: dict[str, tuple[str, ...]]
     event_policies: tuple[EventPolicySpec, ...]
+    max_ranked_setups: int = 2
 
 
 @dataclass(frozen=True)
@@ -205,6 +207,8 @@ class NoTradeWindow:
 class DayTradeInstrumentPlaybook:
     symbol: str
     bias: Direction
+    score: float
+    bias_strength: float
     allowed_direction: AllowedDirection
     trade_state: TradeState
     confidence: float
@@ -213,6 +217,8 @@ class DayTradeInstrumentPlaybook:
     no_trade_windows: tuple[NoTradeWindow, ...]
     bias_reasons: tuple[str, ...] = field(default_factory=tuple)
     notes: tuple[str, ...] = field(default_factory=tuple)
+    tradable_rank: int | None = None
+    is_top_setup: bool = False
 
 
 @dataclass(frozen=True)

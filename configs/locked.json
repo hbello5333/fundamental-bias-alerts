@@ -1,7 +1,7 @@
 {
   "metadata": {
     "name": "fundamentals-only-hourly-bias",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "Research-oriented hourly macro bias engine for top 7 instruments with manually locked FRED series IDs."
   },
   "alerting": {
@@ -10,11 +10,13 @@
     "min_score_change": 0.35
   },
   "research": {
-    "snapshot_path": "data/bias_snapshots.jsonl"
+    "snapshot_path": "data/bias_snapshots.jsonl",
+    "journal_path": "data/paper_trade_journal.jsonl"
   },
   "day_trading": {
     "min_confidence": 0.7,
     "max_stale_drivers": 1,
+    "max_ranked_setups": 2,
     "sessions": [
       {
         "key": "asia",

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from urllib import request
 
-from .models import InstrumentResult
+from .models import DayTradeInstrumentPlaybook, InstrumentResult
 from .telegram import TelegramBotClient
 
 
@@ -54,8 +54,12 @@ class AlertStateStore:
         self.path.write_text(json.dumps(self._state, indent=2), encoding="utf-8")
 
 
-def format_alert_payload(result: InstrumentResult) -> dict[str, Any]:
-    return {
+def format_alert_payload(
+    result: InstrumentResult,
+    *,
+    playbook_item: DayTradeInstrumentPlaybook | None = None,
+) -> dict[str, Any]:
+    payload = {
         "symbol": result.symbol,
         "direction": result.direction,
         "score": round(result.score, 4),
@@ -64,6 +68,21 @@ def format_alert_payload(result: InstrumentResult) -> dict[str, Any]:
         "base_score": round(result.base_result.score, 4),
         "quote_score": round(result.quote_result.score, 4),
     }
+    if playbook_item is not None:
+        payload.update(
+            {
+                "action": _action_value(playbook_item),
+                "allowed_direction": playbook_item.allowed_direction,
+                "trade_state": playbook_item.trade_state,
+                "bias_strength": round(playbook_item.bias_strength, 4),
+                "valid_sessions": [session.label for session in playbook_item.valid_sessions],
+                "tradable_rank": playbook_item.tradable_rank,
+                "is_top_setup": playbook_item.is_top_setup,
+                "stale_driver_count": playbook_item.stale_driver_count,
+                "no_trade_window_count": len(playbook_item.no_trade_windows),
+            }
+        )
+    return payload
 
 
 class ConsoleAlertSink:
@@ -110,6 +129,17 @@ def format_telegram_alert_text(payload: dict[str, Any]) -> str:
         f"Score: {payload.get('score', '')}",
         f"Confidence: {payload.get('confidence', '')}",
     ]
+    if payload.get("action"):
+        lines.append(f"Action: {payload.get('action')}")
+    if payload.get("trade_state"):
+        lines.append(f"Trade state: {payload.get('trade_state')}")
+    if payload.get("is_top_setup") and payload.get("tradable_rank") is not None:
+        lines.append(f"Setup rank: #{payload.get('tradable_rank')} top setup")
+    elif payload.get("tradable_rank") is not None:
+        lines.append(f"Tradable rank: #{payload.get('tradable_rank')}")
+    valid_sessions = payload.get("valid_sessions", [])
+    if isinstance(valid_sessions, list) and valid_sessions:
+        lines.append(f"Sessions: {', '.join(valid_sessions)}")
     if payload.get("base_score") is not None:
         lines.append(f"Base score: {payload.get('base_score')}")
     if payload.get("quote_score") is not None:
@@ -118,3 +148,13 @@ def format_telegram_alert_text(payload: dict[str, Any]) -> str:
         lines.append("Why:")
         lines.extend(f"- {reason}" for reason in reasons[:4])
     return "\n".join(lines)
+
+
+def _action_value(item: DayTradeInstrumentPlaybook) -> str:
+    if item.trade_state == "lockout":
+        return "wait"
+    if item.allowed_direction == "long_only":
+        return "buy"
+    if item.allowed_direction == "short_only":
+        return "sell"
+    return "no_trade"

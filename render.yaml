@@ -4,7 +4,7 @@ services:
     runtime: python
     plan: starter
     buildCommand: pip install .
-    startCommand: python -u -m fundamental_bias_alerts.cli loop --config configs/locked.json --interval-minutes 60 --align-to-clock --telegram-token-env TELEGRAM_BOT_TOKEN --telegram-chat-id-env TELEGRAM_CHAT_ID
+    startCommand: python -u -m fundamental_bias_alerts.cli loop --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json --interval-minutes 60 --align-to-clock --telegram-token-env TELEGRAM_BOT_TOKEN --telegram-chat-id-env TELEGRAM_CHAT_ID
     envVars:
       - key: FRED_API_KEY
         sync: false
@@ -16,6 +16,8 @@ services:
         value: storage/.state/alert_state.json
       - key: FBA_SNAPSHOT_PATH
         value: storage/data/bias_snapshots.jsonl
+      - key: FBA_JOURNAL_PATH
+        value: storage/data/paper_trade_journal.jsonl
     disk:
       name: worker-storage
       mountPath: /opt/render/project/src/storage

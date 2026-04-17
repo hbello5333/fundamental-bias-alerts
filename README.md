@@ -22,6 +22,8 @@ The goal is to build a researchable, auditable alert engine. It is not safe or h
 - Writes one JSONL snapshot per instrument per run for later validation against hourly prices.
 - Lets you verify or lock FRED series matches before using them live.
 - Generates a day-trading playbook with allowed direction, valid sessions, and no-trade windows around scheduled macro events.
+- Ranks the top tradable setups so you can focus on the best 1 to 2 ideas instead of forcing trades across all 7 instruments.
+- Appends each hourly day-trade signal to a paper-trade journal for later review.
 - Includes a Render-ready background worker blueprint for 24/7 cloud deployment.
 
 ## Why FRED / ALFRED
@@ -64,16 +66,18 @@ You can also create a local `.env` file and the CLI will load it automatically i
 
 Each run appends research snapshots to `data/bias_snapshots.jsonl` by default.
 
+If day-trading config is enabled, each run also appends signal-journal entries to `data/paper_trade_journal.jsonl` by default.
+
 Hourly loop:
 
 ```powershell
-python -m fundamental_bias_alerts.cli loop --config configs/locked.json --interval-minutes 60
+python -m fundamental_bias_alerts.cli loop --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json --interval-minutes 60
 ```
 
 Hourly run with Telegram delivery:
 
 ```powershell
-python -m fundamental_bias_alerts.cli run --config configs/locked.json --telegram-token-env TELEGRAM_BOT_TOKEN --telegram-chat-id-env TELEGRAM_CHAT_ID
+python -m fundamental_bias_alerts.cli run --config configs/locked.json --calendar configs/release_calendar.usd_q2_2026.json --telegram-token-env TELEGRAM_BOT_TOKEN --telegram-chat-id-env TELEGRAM_CHAT_ID
 ```
 
 Day-trading playbook:
@@ -98,9 +102,14 @@ The output includes:
 
 - `action`
 - `bias`
+- `score`
+- `bias_strength`
 - `bias_reasons`
 - `allowed_direction`
 - `trade_state`
+- `tradable_rank`
+- `is_top_setup`
+- `top_setups`
 - `valid_sessions`
 - `no_trade_windows`
 
@@ -164,6 +173,7 @@ powershell -ExecutionPolicy Bypass -File scripts\\validate-paper-study.ps1 -Pric
 `register-hourly-task.ps1` creates an hourly Windows Scheduled Task that runs `run-paper-hourly.ps1`. If you pass `-UseTelegram`, it adds Telegram delivery using `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` from your local `.env`.
 
 The hourly task still respects the alert state rules: it runs every hour, but Telegram messages are only sent when the bias changes enough to emit an alert.
+It also writes a paper-trade signal journal so you can review what the system would have wanted to trade even when you skip execution.
 
 Render deployment:
 
@@ -176,7 +186,7 @@ GitHub Actions deployment:
 
 - `.github/workflows/hourly-bias-alerts.yml` provides a no-laptop fallback for hourly Telegram delivery.
 - It runs a single `run` cycle every hour at minute `17` UTC to avoid the top-of-hour GitHub Actions traffic spike.
-- It persists only `storage/.state/alert_state.json` on a dedicated `runtime-state` branch so duplicate alerts stay suppressed across runs.
+- It persists `storage/.state/alert_state.json` and `storage/.state/paper_trade_journal.jsonl` on a dedicated `runtime-state` branch.
 - It keeps `FBA_SNAPSHOT_PATH` ephemeral inside the GitHub runner to avoid committing hourly research data into the repository.
 - Store `FRED_API_KEY`, `TELEGRAM_BOT_TOKEN`, and `TELEGRAM_CHAT_ID` as repository secrets before using it.
 - GitHub scheduled workflows run from the latest commit on the default branch and public-repo schedules are auto-disabled after 60 days without repository activity.
@@ -194,9 +204,9 @@ Validation report highlights:
 - `python -m fundamental_bias_alerts.cli lock-series --config configs/default.json --output configs/locked.json`
   Resolves unresolved series into a locked config file using the top search match.
 - `python -m fundamental_bias_alerts.cli run --config configs/locked.json`
-  Runs one scoring pass, prints the current payload for each instrument, and appends snapshots to `data/bias_snapshots.jsonl`.
+  Runs one scoring pass, prints the current payload for each instrument, and appends snapshots to `data/bias_snapshots.jsonl`. Add `--calendar configs/release_calendar.usd_q2_2026.json` to enrich the output with day-trade ranking and journal entries.
 - `python -m fundamental_bias_alerts.cli loop --config configs/locked.json --interval-minutes 60`
-  Runs continuously on a timer.
+  Runs continuously on a timer. Add `--calendar configs/release_calendar.usd_q2_2026.json` if you want no-trade windows, top setups, and paper-trade signal journaling.
 - `python -m fundamental_bias_alerts.cli telegram-chat-id`
   Prints recent Telegram chats seen by your bot so you can choose a chat ID.
 - `python -m fundamental_bias_alerts.cli telegram-test`
