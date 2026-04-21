@@ -1,7 +1,7 @@
 {
   "XAUUSD": {
     "direction": "bearish",
-    "score": -0.7220125,
+    "score": -0.7200124999999999,
     "confidence": 1.0
   },
   "EURUSD": {
@@ -26,7 +26,7 @@
   },
   "BTCUSD": {
     "direction": "bearish",
-    "score": -0.6215374999999999,
+    "score": -0.6240375,
     "confidence": 0.9
   },
   "AUDUSD": {
